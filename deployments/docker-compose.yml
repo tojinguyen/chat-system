@@ -1,6 +1,31 @@
 version: '3.8'
 
 services:
+  # Api Service (NestJS)
+  api-service:
+    build:
+      context: ../services/api-service
+      dockerfile: Dockerfile
+    container_name: chat_api_service
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=postgrespassword
+      - DB_DATABASE=chat_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=supersecretkey
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - chat-network
+
   # WebSocket Gateway
   ws-gateway:
     build:
