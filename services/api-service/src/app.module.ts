@@ -21,7 +21,11 @@ import { TypeOrmUserEntity } from './infrastructure/persistence/typeorm-user.ent
         password: configService.get<string>('DB_PASSWORD', 'postgrespassword'),
         database: configService.get<string>('DB_DATABASE', 'chat_db'),
         entities: [TypeOrmUserEntity],
-        synchronize: true,
+        synchronize: false,
+        migrationsRun: true,
+        migrations: [
+          __dirname + '/infrastructure/persistence/migrations/*{.ts,.js}',
+        ],
       }),
     }),
     AuthModule,
