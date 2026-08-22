@@ -1,40 +1,40 @@
 .PHONY: help infra-up infra-down infra-logs app-up app-down app-build app-logs run-api run-gateway run-worker run-noti migrate-run migrate-revert all-up all-down
 
 # ==========================================
-# 1. HELP & HƯỚNG DẪN
+# 1. HELP & USAGE
 # ==========================================
 help:
 	@echo "================================================================"
 	@echo "                    CHAT SYSTEM COMMANDS                        "
 	@echo "================================================================"
-	@echo "1. HẠ TẦNG (INFRASTRUCTURE):"
-	@echo "  make infra-up        - Bật Postgres, Redis, ScyllaDB, NATS"
-	@echo "  make infra-down      - Dừng toàn bộ hạ tầng"
-	@echo "  make infra-logs      - Xem logs của hạ tầng"
+	@echo "1. INFRASTRUCTURE:"
+	@echo "  make infra-up        - Start Postgres, Redis, ScyllaDB, NATS"
+	@echo "  make infra-down      - Stop all infrastructure services"
+	@echo "  make infra-logs      - View infrastructure logs"
 	@echo ""
-	@echo "2. TOÀN BỘ ỨNG DỤNG (DOCKER COMPOSE):"
-	@echo "  make app-up          - Khởi chạy các service trong Docker"
-	@echo "  make app-build       - Build lại image và khởi chạy"
-	@echo "  make app-down        - Dừng các service ứng dụng"
-	@echo "  make app-logs        - Xem logs tất cả app"
+	@echo "2. FULL APPLICATION (DOCKER COMPOSE):"
+	@echo "  make app-up          - Start application services in Docker"
+	@echo "  make app-build       - Rebuild images and start services"
+	@echo "  make app-down        - Stop application services"
+	@echo "  make app-logs        - View logs of all applications"
 	@echo ""
-	@echo "3. CHẠY LOCAL DEV (TRỰC TIẾP TRÊN MÁY):"
-	@echo "  make run-api         - Chạy NestJS API Service (Watch mode)"
-	@echo "  make run-gateway     - Chạy WebSocket Gateway (Go)"
-	@echo "  make run-worker      - Chạy Chat Worker (Go)"
-	@echo "  make run-noti        - Chạy Notification Service (Go)"
+	@echo "3. LOCAL DEVELOPMENT (RUN DIRECTLY ON HOST):"
+	@echo "  make run-api         - Run NestJS API Service (Watch mode)"
+	@echo "  make run-gateway     - Run WebSocket Gateway (Go)"
+	@echo "  make run-worker      - Run Chat Worker (Go)"
+	@echo "  make run-noti        - Run Notification Service (Go)"
 	@echo ""
-	@echo "4. DATABASE & MIGRATION (API-SERVICE):"
-	@echo "  make migrate-run     - Chạy TypeORM migrations"
-	@echo "  make migrate-revert  - Rollback migration gần nhất"
+	@echo "4. DATABASE & MIGRATIONS (API-SERVICE):"
+	@echo "  make migrate-run     - Run TypeORM migrations"
+	@echo "  make migrate-revert  - Revert the most recent migration"
 	@echo ""
-	@echo "5. TỔNG HỢP:"
-	@echo "  make all-up          - Bật cả Hạ tầng + Ứng dụng"
-	@echo "  make all-down        - Dừng tất cả"
+	@echo "5. ALL-IN-ONE:"
+	@echo "  make all-up          - Start Infrastructure + Application"
+	@echo "  make all-down        - Stop everything"
 	@echo "================================================================"
 
 # ==========================================
-# 2. HẠ TẦNG (INFRASTRUCTURE)
+# 2. INFRASTRUCTURE
 # ==========================================
 infra-up:
 	docker compose -f deployments/docker-compose.infra.yml up -d
@@ -61,7 +61,7 @@ app-logs:
 	docker compose -f deployments/docker-compose.yml logs -f
 
 # ==========================================
-# 4. CHẠY LOCAL DEV
+# 4. LOCAL DEVELOPMENT
 # ==========================================
 run-api:
 	cd services/api-service && npm run start:dev
