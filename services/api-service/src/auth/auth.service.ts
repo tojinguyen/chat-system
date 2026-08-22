@@ -1,9 +1,19 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UserService } from 'src/users/users.service';
 import { RegisterDto } from './dto/register.dto';
-import { UserResponseDto } from 'src/users/dto/uset-response.dto';
+import { User } from 'src/users/entities/user.entity';
+import { LoginDto } from './dto/login.dto';
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+}
 
 @Injectable()
 export class AuthService {
@@ -12,7 +22,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto): Promise<User> {
     const existingUser = await this.userService.findByUserName(dto.userName);
     if (existingUser) {
       throw new ConflictException('Username already exists');
@@ -29,6 +39,32 @@ export class AuthService {
       passwordHash,
     });
 
-    return new UserResponseDto(newUser);
+    return newUser;
+  }
+
+  async login(dto: LoginDto): Promise<AuthTokens> {
+    const user = await this.userService.findByUserName(dto.userName);
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const isPasswordMatch = await bcrypt.compare(
+      dto.password,
+      user.passwordHash,
+    );
+
+    if (!isPasswordMatch) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const payload = { sub: user.id, userName: user.userName };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, { expiresIn: '15m' }),
+      this.jwtService.signAsync(payload, { expiresIn: '7d' }),
+    ]);
+
+    return { accessToken, refreshToken };
   }
 }

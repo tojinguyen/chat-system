@@ -7,10 +7,6 @@ export class UserService {
     return Promise.resolve(null);
   }
 
-  async findByEmail(_email: string): Promise<User | null> {
-    return Promise.resolve(null);
-  }
-
   async create(
     userData: Omit<User, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<User> {
