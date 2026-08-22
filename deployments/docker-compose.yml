@@ -49,4 +49,4 @@ services:
 
 networks:
   chat-network:
-    external: true
+    driver: bridge
