@@ -1,16 +1,6 @@
 version: '3.8'
 
 services:
-  # Auth Service (NestJS) - Sẽ được thêm sau khi bạn init
-  # auth-service:
-  #   build:
-  #     context: ../services/auth-service
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "3000:3000"
-  #   networks:
-  #     - chat-network
-
   # WebSocket Gateway
   ws-gateway:
     build:

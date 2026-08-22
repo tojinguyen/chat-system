@@ -1,6 +1,21 @@
 version: '3.8'
 
 services:
+  # PostgreSQL - User & Auth Metadata
+  postgres:
+    image: postgres:16-alpine
+    container_name: chat-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: chat_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - chat-network
+
   # Redis - Presence Service & Idempotency Cache
   redis:
     image: redis:7-alpine
