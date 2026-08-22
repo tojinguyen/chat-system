@@ -1,17 +1,24 @@
 import { Injectable } from '@nestjs/common';
-import { RegisterDto } from 'src/auth/dto/register.dto';
+import { User } from './entities/user.entity';
 
 @Injectable()
 export class UserService {
-  async findByUserName(identifier: string) {
-    return null;
+  async findByUserName(_identifier: string): Promise<User | null> {
+    return Promise.resolve(null);
   }
 
-  async findByEmail(email: string) {
-    return null;
+  async findByEmail(_email: string): Promise<User | null> {
+    return Promise.resolve(null);
   }
 
-  async create(user: RegisterDto) {
-    return null;
+  async create(
+    userData: Omit<User, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<User> {
+    return Promise.resolve({
+      ...userData,
+      id: 'mock-id',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
   }
 }
