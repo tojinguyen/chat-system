@@ -49,4 +49,5 @@ services:
 
 networks:
   chat-network:
-    driver: bridge
+    name: chat-network
+    external: true
