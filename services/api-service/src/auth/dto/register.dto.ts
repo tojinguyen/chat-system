@@ -1,0 +1,35 @@
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MinLength,
+  IsEmail,
+} from 'class-validator';
+
+export class RegisterDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Username is required' })
+  @MinLength(3, { message: 'Username must be at least 3 characters' })
+  userName: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Password is required' })
+  @MinLength(6, { message: 'Password must be at least 6 characters' })
+  password: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Name is required' })
+  name: string;
+
+  @IsEmail({}, { message: 'Email format is invalid' })
+  @IsNotEmpty({ message: 'Email is required' })
+  email: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  address?: string;
+}
