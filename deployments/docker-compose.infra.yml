@@ -57,6 +57,7 @@ networks:
     driver: bridge
 
 volumes:
+  postgres_data:
   redis_data:
   scylla_data:
   nats_data:
