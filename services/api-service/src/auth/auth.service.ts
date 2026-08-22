@@ -7,7 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UserService } from 'src/users/users.service';
 import { RegisterDto } from './dto/register.dto';
-import { User } from 'src/users/entities/user.entity';
+import { User } from 'src/domain/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 
 export interface AuthTokens {
@@ -32,7 +32,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, saltRounds);
 
     const newUser = await this.userService.create({
-      userName: dto.userName,
+      username: dto.userName,
       name: dto.name,
       phone: dto.phone,
       address: dto.address,
@@ -58,7 +58,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const payload = { sub: user.id, userName: user.userName };
+    const payload = { sub: user.id, username: user.username };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, { expiresIn: '15m' }),
