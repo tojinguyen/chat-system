@@ -30,3 +30,21 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Node.js & NestJS
+node_modules/
+dist/
+build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.nyc_output/
+.temp/
+.tmp/
+pids/
+*.pid
+*.seed
+*.pid.lock
+
