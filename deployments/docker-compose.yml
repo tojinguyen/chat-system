@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # Auth Service (NestJS) - Sẽ được thêm sau khi bạn init
+  # auth-service:
+  #   build:
+  #     context: ../services/auth-service
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "3000:3000"
+  #   networks:
+  #     - chat-network
+
+  # WebSocket Gateway
+  ws-gateway:
+    build:
+      context: ../services/ws-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - kafka
+    networks:
+      - chat-network
+
+  # Chat Worker
+  chat-worker:
+    build:
+      context: ../services/chat-worker
+      dockerfile: Dockerfile
+    depends_on:
+      - redis
+      - scylladb
+      - kafka
+    networks:
+      - chat-network
+
+  # Notification Service
+  notification-service:
+    build:
+      context: ../services/notification-service
+      dockerfile: Dockerfile
+    depends_on:
+      - kafka
+    networks:
+      - chat-network
+
+networks:
+  chat-network:
+    external: true

@@ -1,0 +1,14 @@
+nats:
+  url: "nats://localhost:4222"
+  notification_subject: "chat.notifications"
+  queue_group: "notification-worker-group"
+
+fcm:
+  credentials_file: "configs/fcm-service-account.json"
+
+apns:
+  key_file: "configs/apns-key.p8"
+  key_id: "KEY_ID"
+  team_id: "TEAM_ID"
+  topic: "com.chat.app"
+  production: false

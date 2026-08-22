@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # Redis - Presence Service & Idempotency Cache
+  redis:
+    image: redis:7-alpine
+    container_name: chat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - chat-network
+
+  # ScyllaDB - High-throughput Message Store
+  scylladb:
+    image: scylladb/scylla:5.2
+    container_name: chat-scylladb
+    ports:
+      - "9042:9042"
+    volumes:
+      - scylla_data:/var/lib/scylla
+    networks:
+      - chat-network
+
+  # NATS Server with JetStream enabled
+  nats:
+    image: nats:latest
+    container_name: chat-nats
+    ports:
+      - "4222:4222" # Client port
+      - "8222:8222" # HTTP Monitoring dashboard
+    command: ["-js", "-m", "8222"]
+    volumes:
+      - nats_data:/data
+    networks:
+      - chat-network
+
+networks:
+  chat-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  scylla_data:
+  nats_data:
