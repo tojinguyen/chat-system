@@ -4,6 +4,7 @@ type Config struct {
 	Server ServerConfig `yaml:"server"`
 	Redis  RedisConfig  `yaml:"redis"`
 	NATS   NATSConfig   `yaml:"nats"`
+	Jwt    JwtConfig    `yaml:"jwt"`
 }
 
 type ServerConfig struct {
@@ -23,6 +24,11 @@ type NATSConfig struct {
 	OutboundSubjectPrefix string `yaml:"outbound_subject_prefix"`
 }
 
+type JwtConfig struct {
+	AccessTokenSecret string `yaml:"access_token_secret"`
+	AccessTokenExpiry int64  `yaml:"access_token_expiry"`
+}
+
 func LoadConfig(path string) (*Config, error) {
 	// TODO: Implement YAML/ENV config loader
 	return &Config{
@@ -34,6 +40,10 @@ func LoadConfig(path string) (*Config, error) {
 			URL:                   "nats://localhost:4222",
 			InboundSubject:        "chat.inbound",
 			OutboundSubjectPrefix: "chat.gateway.",
+		},
+		Jwt: JwtConfig{
+			AccessTokenSecret: "secret",
+			AccessTokenExpiry: 3600,
 		},
 	}, nil
 }
