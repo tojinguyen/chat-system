@@ -12,6 +12,7 @@ import (
 
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/connection"
+	"ws-gateway/internal/handler"
 )
 
 func main() {
@@ -26,9 +27,7 @@ func main() {
 	go hub.Run()
 
 	// HTTP / WebSocket route
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Upgrade connection to WebSocket, authenticate token, register client to hub
-	})
+	http.HandleFunc("/ws", handler.HandleWebSocket(hub, cfg.Jwt.AccessTokenSecret))
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

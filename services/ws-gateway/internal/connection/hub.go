@@ -3,6 +3,8 @@ package connection
 import (
 	"sync"
 	"ws-gateway/internal/domain"
+
+	"github.com/gorilla/websocket"
 )
 
 // Client represents a single active WebSocket connection
@@ -10,6 +12,7 @@ type Client struct {
 	UserID   string
 	DeviceID string
 	SendChan chan *domain.WSMessage
+	Conn     *websocket.Conn
 	Hub      *Hub
 }
 
@@ -79,4 +82,12 @@ func (h *Hub) SendToUser(userID string, msg *domain.WSMessage) {
 			}
 		}
 	}
+}
+
+func (h *Hub) RegisterClient(client *Client) {
+	h.register <- client
+}
+
+func (h *Hub) UnregisterClient(client *Client) {
+	h.unregister <- client
 }
