@@ -1,7 +1,10 @@
 package connection
 
 import (
+	"log"
 	"sync"
+	"time"
+	"ws-gateway/internal/config"
 	"ws-gateway/internal/domain"
 
 	"github.com/gorilla/websocket"
@@ -18,7 +21,46 @@ type Client struct {
 
 // ReadPump handles reading messages from the WebSocket connection
 func (c *Client) ReadPump() {
-	// TODO: Implement read loop from websocket
+	defer func() {
+		c.Hub.UnregisterClient(c)
+		c.Conn.Close()
+	}()
+
+	c.Conn.SetReadLimit(int64(config.Cfg.Ws.MaxMessageSize))
+	pongWait := time.Duration(config.Cfg.Ws.PongWait) * time.Second
+	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+
+	c.Conn.SetPongHandler(func(string) error {
+		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	for {
+		var msg domain.WSMessage
+		err := c.Conn.ReadJSON(&msg)
+
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("[ReadPump] error reading message from user %s: %v", c.UserID, err)
+			}
+			break
+		}
+
+		msg.SenderID = c.UserID
+
+		c.handleIncomingMessage(&msg)
+	}
+}
+
+func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
+	switch msg.Type {
+	case domain.EventHeartbeat:
+		log.Printf("Heartbeat received from user %s", c.UserID)
+	case domain.EventSendMessage:
+		log.Printf("User %s sent message to conversation %s: %s", c.UserID, msg.ConversationID, msg.Content)
+	default:
+		log.Printf("Unhandled message type: %s", msg.Type)
+	}
 }
 
 // WritePump handles pushing messages to the WebSocket connection

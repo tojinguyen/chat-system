@@ -1,10 +1,11 @@
 package config
 
 type Config struct {
-	Server ServerConfig `yaml:"server"`
-	Redis  RedisConfig  `yaml:"redis"`
-	NATS   NATSConfig   `yaml:"nats"`
-	Jwt    JwtConfig    `yaml:"jwt"`
+	Server ServerConfig    `yaml:"server"`
+	Redis  RedisConfig     `yaml:"redis"`
+	NATS   NATSConfig      `yaml:"nats"`
+	Jwt    JwtConfig       `yaml:"jwt"`
+	Ws     WebSocketConfig `yaml:"ws"`
 }
 
 type ServerConfig struct {
@@ -29,9 +30,15 @@ type JwtConfig struct {
 	AccessTokenExpiry int64  `yaml:"access_token_expiry"`
 }
 
+type WebSocketConfig struct {
+	PongWait       int64 `yaml:"pong_wait"`
+	MaxMessageSize int   `yaml:"max_message_size"`
+}
+
+var Cfg *Config
+
 func LoadConfig(path string) (*Config, error) {
-	// TODO: Implement YAML/ENV config loader
-	return &Config{
+	Cfg = &Config{
 		Server: ServerConfig{
 			Port:   8080,
 			NodeID: "gateway-node-01",
@@ -45,5 +52,6 @@ func LoadConfig(path string) (*Config, error) {
 			AccessTokenSecret: "secret",
 			AccessTokenExpiry: 3600,
 		},
-	}, nil
+	}
+	return Cfg, nil
 }
