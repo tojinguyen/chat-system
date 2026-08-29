@@ -1,9 +1,12 @@
 package connection
 
 import (
+	"context"
+	"encoding/json"
 	"log"
 	"sync"
 	"time"
+	"ws-gateway/internal/broker"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/domain"
 
@@ -56,27 +59,47 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 		log.Printf("Heartbeat received from user %s", c.UserID)
 		// TODO: Implement heartbeat handling logic (Reset presence timer, etc.)
 	case domain.WSEventSendMessage:
-		// brokerMessageType, ok := msg.Type.ToBrokerMessageType()
-		// if !ok {
-		// 	log.Printf("Unhandled message type: %s", msg.Type)
-		// 	return
-		// }
+		brokerMessageType, ok := msg.Type.ToBrokerMessageType()
+		if !ok {
+			log.Printf("Unhandled message type: %s", msg.Type)
+			return
+		}
 
-		// inboundEvent := domain.InboundBrokerEvent{
-		// 	Type:        brokerMessageType,
-		// 	ClientMsgID: msg.ClientMsgID,
-		// 	SenderID:    c.UserID,
-		// 	DeviceID:    c.DeviceID,
-		// 	GatewayNode: config.Cfg.Server.NodeID,
-		// 	Payload:     msg.Payload,
-		// 	SentAt:      time.Now().UTC(),
-		// }
-		// ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		// defer cancel()
-		log.Printf("User %s sent message to conversation", c.UserID)
-		// TODO: Implement message routing logic to other users/devices in the conversation
+		inboundEvent := domain.InboundBrokerEvent{
+			Type:        brokerMessageType,
+			ClientMsgID: msg.ClientMsgID,
+			SenderID:    c.UserID,
+			DeviceID:    c.DeviceID,
+			GatewayNode: config.Cfg.Server.NodeID,
+			Payload:     msg.Payload,
+			SentAt:      time.Now().UTC(),
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		if err := c.Hub.producer.PublishInbound(ctx, &inboundEvent); err != nil {
+			log.Printf("Failed to publish inbound event %s for user %s: %v", brokerMessageType, c.UserID, err)
+			c.sendErrorMessage(msg.ClientMsgID, "Failed to send message")
+			return
+		}
 	default:
 		log.Printf("Unhandled message type: %s", msg.Type)
+	}
+}
+
+func (c *Client) sendErrorMessage(clientMsgID string, errorMsg string) {
+	errPayload, _ := json.Marshal(domain.FailedToSendPayload{Error: errorMsg})
+
+	errMsg := &domain.WSMessage{
+		Type:        domain.WSEventFailedToSend,
+		ClientMsgID: clientMsgID,
+		Payload:     errPayload,
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	select {
+	case c.SendChan <- errMsg:
+	default:
+		log.Printf("[sendErrorMessage] SendChan full for user %s", c.UserID)
 	}
 }
 
@@ -95,14 +118,16 @@ type Hub struct {
 	clients    map[string]map[string]*Client
 	register   chan *Client
 	unregister chan *Client
+	producer   broker.InboundProducer
 	mu         sync.RWMutex
 }
 
-func NewHub() *Hub {
+func NewHub(producer broker.InboundProducer) *Hub {
 	return &Hub{
 		clients:    make(map[string]map[string]*Client),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
+		producer:   producer,
 	}
 }
 

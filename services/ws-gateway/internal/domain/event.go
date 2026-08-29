@@ -9,8 +9,9 @@ import (
 type WSEventType string
 
 const (
-	WSEventSendMessage WSEventType = "SEND_MESSAGE"
-	WSEventHeartbeat   WSEventType = "HEARTBEAT"
+	WSEventSendMessage  WSEventType = "SEND_MESSAGE"
+	WSEventFailedToSend WSEventType = "FAILED_TO_SEND"
+	WSEventHeartbeat    WSEventType = "HEARTBEAT"
 )
 
 // Broker message type
@@ -40,6 +41,10 @@ type WSMessage struct {
 type SendMessagePayload struct {
 	ConversationID string `json:"conversation_id"`
 	Content        string `json:"content"`
+}
+
+type FailedToSendPayload struct {
+	Error string `json:"error"`
 }
 
 // InboundBrokerEvent represents the message forwarded from Gateway to Broker
