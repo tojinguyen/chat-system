@@ -56,8 +56,10 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 	switch msg.Type {
 	case domain.EventHeartbeat:
 		log.Printf("Heartbeat received from user %s", c.UserID)
+		// TODO: Implement heartbeat handling logic (Reset presence timer, etc.)
 	case domain.EventSendMessage:
 		log.Printf("User %s sent message to conversation %s: %s", c.UserID, msg.ConversationID, msg.Content)
+		// TODO: Implement message routing logic to other users/devices in the conversation
 	default:
 		log.Printf("Unhandled message type: %s", msg.Type)
 	}
@@ -65,7 +67,11 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 
 // WritePump handles pushing messages to the WebSocket connection
 func (c *Client) WritePump() {
-	// TODO: Implement write loop to websocket
+	for msg := range c.SendChan {
+		if err := c.Conn.WriteJSON(msg); err != nil {
+			return
+		}
+	}
 }
 
 // Hub maintains the set of active clients and handles broadcasting
