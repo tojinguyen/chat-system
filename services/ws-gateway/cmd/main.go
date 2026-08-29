@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"ws-gateway/internal/broker"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/connection"
 	"ws-gateway/internal/handler"
@@ -23,7 +24,14 @@ func main() {
 
 	log.Printf("Starting WebSocket Gateway node: %s on port :%d", cfg.Server.NodeID, cfg.Server.Port)
 
-	hub := connection.NewHub()
+	// Initialize NATS Inbound Producer
+	inboundProducer, err := broker.NewInboundProducer(cfg.NATS.URL, cfg.NATS.InboundSubject)
+	if err != nil {
+		log.Fatalf("Failed to initialize NATS inbound producer: %v", err)
+	}
+	defer inboundProducer.Close()
+
+	hub := connection.NewHub(inboundProducer)
 	go hub.Run()
 
 	// HTTP / WebSocket route
