@@ -46,19 +46,17 @@ func (c *Client) ReadPump() {
 			break
 		}
 
-		msg.SenderID = c.UserID
-
 		c.handleIncomingMessage(&msg)
 	}
 }
 
 func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 	switch msg.Type {
-	case domain.EventHeartbeat:
+	case domain.WSEventHeartbeat:
 		log.Printf("Heartbeat received from user %s", c.UserID)
 		// TODO: Implement heartbeat handling logic (Reset presence timer, etc.)
-	case domain.EventSendMessage:
-		log.Printf("User %s sent message to conversation %s: %s", c.UserID, msg.ConversationID, msg.Content)
+	case domain.WSEventSendMessage:
+		log.Printf("User %s sent message to conversation", c.UserID)
 		// TODO: Implement message routing logic to other users/devices in the conversation
 	default:
 		log.Printf("Unhandled message type: %s", msg.Type)
