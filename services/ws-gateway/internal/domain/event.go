@@ -9,12 +9,8 @@ import (
 type WSEventType string
 
 const (
-	WSEventSendMessage    WSEventType = "SEND_MESSAGE"
-	WSEventReceiveMessage WSEventType = "RECEIVE_MESSAGE"
-	WSEventAckSent        WSEventType = "ACK_SENT"
-	WSEventAckDelivered   WSEventType = "ACK_DELIVERED"
-	WSEventAckRead        WSEventType = "ACK_READ"
-	WSEventHeartbeat      WSEventType = "HEARTBEAT"
+	WSEventSendMessage WSEventType = "SEND_MESSAGE"
+	WSEventHeartbeat   WSEventType = "HEARTBEAT"
 )
 
 // Broker message type
