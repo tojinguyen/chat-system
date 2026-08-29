@@ -20,6 +20,15 @@ const (
 	BrokerEventMessageSubmitted BrokerMessageType = "MESSAGE_SUBMITTED"
 )
 
+func (t WSEventType) ToBrokerMessageType() (BrokerMessageType, bool) {
+	switch t {
+	case WSEventSendMessage:
+		return BrokerEventMessageSubmitted, true
+	default:
+		return "", false
+	}
+}
+
 // WSMessage represents the payload exchanged with client over WebSocket
 type WSMessage struct {
 	Type        WSEventType     `json:"type"`
@@ -40,7 +49,7 @@ type InboundBrokerEvent struct {
 	SenderID    string            `json:"sender_id"`
 	DeviceID    string            `json:"device_id"`
 	GatewayNode string            `json:"gateway_node"`
-	Payload     string            `json:"payload"`
+	Payload     json.RawMessage   `json:"payload"`
 	SentAt      time.Time         `json:"sent_at"`
 }
 

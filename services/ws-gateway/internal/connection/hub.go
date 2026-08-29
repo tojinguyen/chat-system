@@ -56,6 +56,23 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 		log.Printf("Heartbeat received from user %s", c.UserID)
 		// TODO: Implement heartbeat handling logic (Reset presence timer, etc.)
 	case domain.WSEventSendMessage:
+		// brokerMessageType, ok := msg.Type.ToBrokerMessageType()
+		// if !ok {
+		// 	log.Printf("Unhandled message type: %s", msg.Type)
+		// 	return
+		// }
+
+		// inboundEvent := domain.InboundBrokerEvent{
+		// 	Type:        brokerMessageType,
+		// 	ClientMsgID: msg.ClientMsgID,
+		// 	SenderID:    c.UserID,
+		// 	DeviceID:    c.DeviceID,
+		// 	GatewayNode: config.Cfg.Server.NodeID,
+		// 	Payload:     msg.Payload,
+		// 	SentAt:      time.Now().UTC(),
+		// }
+		// ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		// defer cancel()
 		log.Printf("User %s sent message to conversation", c.UserID)
 		// TODO: Implement message routing logic to other users/devices in the conversation
 	default:
