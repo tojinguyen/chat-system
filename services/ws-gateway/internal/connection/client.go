@@ -84,8 +84,7 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-		if err := c.Hub.producer.PublishInbound(ctx, &inboundEvent); err != nil {
-			log.Printf("Failed to publish inbound event %s for user %s: %v", brokerMessageType, c.UserID, err)
+		if err := c.Hub.producer.Publish(ctx, inboundEvent); err != nil {
 			c.sendErrorMessage(msg.ClientMsgID, "Failed to send message")
 			return
 		}

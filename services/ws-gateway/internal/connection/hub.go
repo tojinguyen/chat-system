@@ -5,7 +5,8 @@ import (
 	"log"
 	"sync"
 	"time"
-	"ws-gateway/internal/broker"
+
+	"chat-system/pkg/contracts"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/domain"
 )
@@ -16,18 +17,23 @@ type PresenceService interface {
 	Heartbeat(ctx context.Context, userID, deviceID string, ttl time.Duration) error
 }
 
+// InboundPublisher is satisfied by *nats.Publisher[contracts.InboundBrokerEvent]
+type InboundPublisher interface {
+	Publish(ctx context.Context, event contracts.InboundBrokerEvent) error
+}
+
 // Hub maintains the set of active clients and handles broadcasting
 type Hub struct {
 	// Registered clients: map[userID]map[deviceID]*Client
 	clients    map[string]map[string]*Client
 	register   chan *Client
 	unregister chan *Client
-	producer   broker.InboundProducer
+	producer   InboundPublisher
 	presence   PresenceService
 	mu         sync.RWMutex
 }
 
-func NewHub(producer broker.InboundProducer, presence PresenceService) *Hub {
+func NewHub(producer InboundPublisher, presence PresenceService) *Hub {
 	return &Hub{
 		clients:    make(map[string]map[string]*Client),
 		register:   make(chan *Client),

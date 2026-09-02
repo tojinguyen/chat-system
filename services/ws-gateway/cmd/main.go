@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,9 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"ws-gateway/internal/broker"
+	"chat-system/pkg/contracts"
+	natsclient "chat-system/pkg/nats"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/connection"
+	"ws-gateway/internal/domain"
 	"ws-gateway/internal/handler"
 	"ws-gateway/internal/presence"
 )
@@ -25,17 +28,43 @@ func main() {
 
 	log.Printf("Starting WebSocket Gateway node: %s on port :%d", cfg.Server.NodeID, cfg.Server.Port)
 
-	// Initialize NATS Inbound Producer
-	inboundProducer, err := broker.NewInboundProducer(cfg.NATS.URL, cfg.NATS.InboundSubject)
+	// Initialize NATS Connection
+	nc, err := natsclient.Connect(cfg.NATS.URL, "ws-gateway-"+cfg.Server.NodeID)
 	if err != nil {
-		log.Fatalf("Failed to initialize NATS inbound producer: %v", err)
+		log.Fatalf("Failed to connect to NATS: %v", err)
 	}
-	defer inboundProducer.Close()
+	defer nc.Close()
+
+	// Initialize Generic NATS Inbound Producer
+	inboundProducer := natsclient.NewPublisher[contracts.InboundBrokerEvent](nc, cfg.NATS.InboundSubject)
 
 	presenceService := presence.NewPresenceService(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
 
 	hub := connection.NewHub(inboundProducer, presenceService)
 	go hub.Run()
+
+	// Initialize Generic NATS Outbound Consumer for this Gateway node
+	gatewaySubject := contracts.GatewayNodeSubject(cfg.Server.NodeID)
+	outboundConsumer := natsclient.NewSubscriber[contracts.OutboundBrokerEvent](nc, gatewaySubject)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	err = outboundConsumer.Start(ctx, func(ctx context.Context, event contracts.OutboundBrokerEvent) error {
+		// Forward message received from Chat Engine down to user connected sockets
+		payloadBytes, _ := json.Marshal(event)
+		wsMsg := &domain.WSMessage{
+			Type:      domain.WSEventSendMessage,
+			Timestamp: event.Timestamp,
+			Payload:   payloadBytes,
+		}
+		hub.SendToUser(event.ReceiverID, wsMsg)
+		return nil
+	})
+	if err != nil {
+		log.Fatalf("Failed to start outbound consumer on subject %s: %v", gatewaySubject, err)
+	}
+	log.Printf("Subscribed to outbound topic: %s", gatewaySubject)
 
 	// HTTP / WebSocket route
 	http.HandleFunc("/ws", handler.HandleWebSocket(hub, cfg.Jwt.AccessTokenSecret))
@@ -56,16 +85,14 @@ func main() {
 		}
 	}()
 
-	// Graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	// Wait for termination signal
+	<-ctx.Done()
 
 	log.Println("Shutting down WebSocket Gateway...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := server.Shutdown(ctx); err != nil {
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("Server forced shutdown: %v", err)
 	}
 	log.Println("WebSocket Gateway exited cleanly")
