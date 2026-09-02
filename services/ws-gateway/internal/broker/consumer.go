@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"ws-gateway/internal/domain"
+
+	"chat-system/pkg/contracts"
+	natsclient "chat-system/pkg/nats"
 
 	"github.com/nats-io/nats.go"
 )
 
 // OutboundHandler is the callback function when a message arrives from NATS for this gateway node
-type OutboundHandler func(event *domain.OutboundBrokerEvent) error
+type OutboundHandler func(event *contracts.OutboundBrokerEvent) error
 
 // OutboundConsumer subscribes to messages destined for this specific gateway node subject (e.g. chat.gateway.gateway-node-01)
 type OutboundConsumer interface {
@@ -25,7 +27,7 @@ type natsConsumer struct {
 }
 
 func NewOutboundConsumer(natsURL string, subject string) (OutboundConsumer, error) {
-	nc, err := connectNATS(natsURL, "ws-gateway-outbound-consumer")
+	nc, err := natsclient.Connect(natsURL, "ws-gateway-outbound-consumer")
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
@@ -37,7 +39,7 @@ func NewOutboundConsumer(natsURL string, subject string) (OutboundConsumer, erro
 
 func (c *natsConsumer) Start(ctx context.Context, handler OutboundHandler) error {
 	sub, err := c.conn.Subscribe(c.subject, func(msg *nats.Msg) {
-		var event domain.OutboundBrokerEvent
+		var event contracts.OutboundBrokerEvent
 		if err := json.Unmarshal(msg.Data, &event); err != nil {
 			fmt.Printf("failed to unmarshal message: %v\n", err)
 			return

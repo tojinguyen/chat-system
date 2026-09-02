@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"ws-gateway/internal/domain"
+
+	"chat-system/pkg/contracts"
+	natsclient "chat-system/pkg/nats"
 
 	"github.com/nats-io/nats.go"
 )
 
 // InboundProducer publishes incoming client messages to NATS Inbound Subject
 type InboundProducer interface {
-	PublishInbound(ctx context.Context, event *domain.InboundBrokerEvent) error
+	PublishInbound(ctx context.Context, event *contracts.InboundBrokerEvent) error
 	Close() error
 }
 
@@ -21,7 +23,7 @@ type natsProducer struct {
 }
 
 func NewInboundProducer(natsURL string, subject string) (InboundProducer, error) {
-	nc, err := connectNATS(natsURL, "ws-gateway-inbound-producer")
+	nc, err := natsclient.Connect(natsURL, "ws-gateway-inbound-producer")
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
@@ -31,7 +33,7 @@ func NewInboundProducer(natsURL string, subject string) (InboundProducer, error)
 	}, nil
 }
 
-func (p *natsProducer) PublishInbound(ctx context.Context, event *domain.InboundBrokerEvent) error {
+func (p *natsProducer) PublishInbound(ctx context.Context, event *contracts.InboundBrokerEvent) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context canceled before publish: %w", err)
 	}

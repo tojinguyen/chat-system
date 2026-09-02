@@ -2,7 +2,8 @@ package domain
 
 import (
 	"encoding/json"
-	"time"
+
+	"chat-system/pkg/contracts"
 )
 
 // WSEventType represents the type of WebSocket event
@@ -14,17 +15,10 @@ const (
 	WSEventHeartbeat    WSEventType = "HEARTBEAT"
 )
 
-// Broker message type
-type BrokerMessageType string
-
-const (
-	BrokerEventMessageSubmitted BrokerMessageType = "MESSAGE_SUBMITTED"
-)
-
-func (t WSEventType) ToBrokerMessageType() (BrokerMessageType, bool) {
+func (t WSEventType) ToBrokerMessageType() (contracts.BrokerMessageType, bool) {
 	switch t {
 	case WSEventSendMessage:
-		return BrokerEventMessageSubmitted, true
+		return contracts.BrokerEventMessageSubmitted, true
 	default:
 		return "", false
 	}
@@ -45,19 +39,4 @@ type SendMessagePayload struct {
 
 type FailedToSendPayload struct {
 	Error string `json:"error"`
-}
-
-// InboundBrokerEvent represents the message forwarded from Gateway to Broker
-type InboundBrokerEvent struct {
-	Type        BrokerMessageType `json:"type"`
-	ClientMsgID string            `json:"client_msg_id"`
-	SenderID    string            `json:"sender_id"`
-	DeviceID    string            `json:"device_id"`
-	GatewayNode string            `json:"gateway_node"`
-	Payload     json.RawMessage   `json:"payload"`
-	SentAt      time.Time         `json:"sent_at"`
-}
-
-// OutboundBrokerEvent represents the message received from Broker to be pushed to client
-type OutboundBrokerEvent struct {
 }

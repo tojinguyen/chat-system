@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log"
 	"time"
+
+	"chat-system/pkg/contracts"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/domain"
 
@@ -70,7 +72,7 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 			return
 		}
 
-		inboundEvent := domain.InboundBrokerEvent{
+		inboundEvent := contracts.InboundBrokerEvent{
 			Type:        brokerMessageType,
 			ClientMsgID: msg.ClientMsgID,
 			SenderID:    c.UserID,
