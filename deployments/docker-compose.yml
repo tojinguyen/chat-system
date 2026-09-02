@@ -31,10 +31,10 @@ services:
     networks:
       - chat-network
 
-  # Chat Worker
-  chat-worker:
+  # Chat Engine
+  chat-engine:
     build:
-      context: ../services/chat-worker
+      context: ../services/chat-engine
       dockerfile: Dockerfile
     networks:
       - chat-network
