@@ -1,5 +1,12 @@
 package config
 
+import (
+	"fmt"
+	"os"
+
+	"go.yaml.in/yaml/v2"
+)
+
 type Config struct {
 	Worker   WorkerConfig   `yaml:"worker"`
 	NATS     NATSConfig     `yaml:"nats"`
@@ -8,8 +15,7 @@ type Config struct {
 }
 
 type WorkerConfig struct {
-	ID          string `yaml:"id"`
-	Concurrency int    `yaml:"concurrency"`
+	ID string `yaml:"id"`
 }
 
 type NATSConfig struct {
@@ -28,26 +34,53 @@ type DatabaseConfig struct {
 }
 
 type RedisConfig struct {
-	Addr                  string `yaml:"addr"`
-	Password              string `yaml:"password"`
-	DB                    int    `yaml:"db"`
-	IdempotencyTTLSeconds int    `yaml:"idempotency_ttl_seconds"`
+	Addr     string `yaml:"addr"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
 }
 
+var Cfg *Config
+
 func LoadConfig(path string) (*Config, error) {
-	// TODO: Implement YAML/ENV config loader
-	return &Config{
-		Worker: WorkerConfig{
-			ID:          "chat-worker-01",
-			Concurrency: 10,
-		},
-		NATS: NATSConfig{
-			URL:                   "nats://localhost:4222",
-			InboundSubject:        "chat.inbound",
-			InboundStream:         "CHAT_INBOUND",
-			InboundConsumerGroup:  "chat-worker-group",
-			OutboundSubjectPrefix: "chat.gateway.",
-			NotificationSubject:   "chat.notifications",
-		},
-	}, nil
+	if path == "" {
+		return nil, fmt.Errorf("đường dẫn file config không được để trống")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("không thể đọc file config tại %s: %w", path, err)
+	}
+
+	var config Config
+
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("không thể parse file yaml config: %w", err)
+	}
+
+	Cfg = &config
+
+	if err := Cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("cấu hình không hợp lệ: %w", err)
+	}
+
+	return Cfg, nil
+}
+
+func (c *Config) Validate() error {
+	if c.Worker.ID == "" {
+		return fmt.Errorf("worker.id không được để trống")
+	}
+	if c.NATS.URL == "" {
+		return fmt.Errorf("nats.url không được để trống")
+	}
+	if c.NATS.InboundSubject == "" {
+		return fmt.Errorf("nats.inbound_subject không được để trống")
+	}
+	if len(c.Database.Hosts) == 0 {
+		return fmt.Errorf("database.hosts không được để trống")
+	}
+	if c.Redis.Addr == "" {
+		return fmt.Errorf("redis.addr không được để trống")
+	}
+	return nil
 }
