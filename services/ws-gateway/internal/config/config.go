@@ -6,6 +6,7 @@ type Config struct {
 	NATS   NATSConfig      `yaml:"nats"`
 	Jwt    JwtConfig       `yaml:"jwt"`
 	Ws     WebSocketConfig `yaml:"ws"`
+	Pres   PresenceConfig  `yaml:"presence"`
 }
 
 type ServerConfig struct {
@@ -33,6 +34,11 @@ type JwtConfig struct {
 type WebSocketConfig struct {
 	PongWait       int64 `yaml:"pong_wait"`
 	MaxMessageSize int   `yaml:"max_message_size"`
+	WriteDeadline  int64 `yaml:"write_deadline"`
+}
+
+type PresenceConfig struct {
+	TTL int64 `yaml:"ttl"`
 }
 
 var Cfg *Config

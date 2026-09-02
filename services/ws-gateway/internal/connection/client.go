@@ -55,7 +55,14 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 	switch msg.Type {
 	case domain.WSEventHeartbeat:
 		log.Printf("Heartbeat received from user %s", c.UserID)
-		// TODO: Implement heartbeat handling logic (Reset presence timer, etc.)
+		go func(c *Client) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := c.Hub.presence.Heartbeat(ctx, c.UserID, c.DeviceID, time.Duration(config.Cfg.Pres.TTL)); err != nil {
+				log.Printf("Error sending heartbeat for user %s: %v", c.UserID, err)
+			}
+		}(c)
 	case domain.WSEventSendMessage:
 		brokerMessageType, ok := msg.Type.ToBrokerMessageType()
 		if !ok {
@@ -103,9 +110,32 @@ func (c *Client) sendErrorMessage(clientMsgID string, errorMsg string) {
 
 // WritePump handles pushing messages to the WebSocket connection
 func (c *Client) WritePump() {
-	for msg := range c.SendChan {
-		if err := c.Conn.WriteJSON(msg); err != nil {
-			return
+	pongWait := time.Duration(config.Cfg.Ws.PongWait) * time.Second
+	pingPeriod := (pongWait * 9) / 10
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.Conn.Close()
+	}()
+
+	for {
+		select {
+		case <-ticker.C:
+			c.Conn.SetWriteDeadline(time.Now().Add(time.Duration(config.Cfg.Ws.WriteDeadline) * time.Second))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("[WritePump] error sending ping to user %s: %v", c.UserID, err)
+				return
+			}
+		case msg, ok := <-c.SendChan:
+			c.Conn.SetWriteDeadline(time.Now().Add(time.Duration(config.Cfg.Ws.WriteDeadline) * time.Second))
+			if !ok {
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.Conn.WriteJSON(msg); err != nil {
+				log.Printf("[WritePump] error writing message to user %s: %v", c.UserID, err)
+				return
+			}
 		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/connection"
 	"ws-gateway/internal/handler"
+	"ws-gateway/internal/presence"
 )
 
 func main() {
@@ -31,7 +32,9 @@ func main() {
 	}
 	defer inboundProducer.Close()
 
-	hub := connection.NewHub(inboundProducer)
+	presenceService := presence.NewPresenceService(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
+
+	hub := connection.NewHub(inboundProducer, presenceService)
 	go hub.Run()
 
 	// HTTP / WebSocket route
