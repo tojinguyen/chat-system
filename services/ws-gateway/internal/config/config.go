@@ -7,6 +7,7 @@ type Config struct {
 	Jwt    JwtConfig       `yaml:"jwt"`
 	Ws     WebSocketConfig `yaml:"ws"`
 	Pres   PresenceConfig  `yaml:"presence"`
+	GRPC   GRPCConfig      `yaml:"grpc"`
 }
 
 type ServerConfig struct {
@@ -40,6 +41,11 @@ type WebSocketConfig struct {
 
 type PresenceConfig struct {
 	TTL int64 `yaml:"ttl"`
+}
+
+type GRPCConfig struct {
+	Port           int    `yaml:"port"`
+	AdvertisedAddr string `yaml:"advertised_addr"`
 }
 
 var Cfg *Config
