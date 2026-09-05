@@ -1,5 +1,12 @@
 package config
 
+import (
+	"fmt"
+	"os"
+
+	"gopkg.in/yaml.v3"
+)
+
 type Config struct {
 	Server ServerConfig    `yaml:"server"`
 	Redis  RedisConfig     `yaml:"redis"`
@@ -13,7 +20,7 @@ type Config struct {
 type ServerConfig struct {
 	Port         int    `yaml:"port"`
 	NodeID       string `yaml:"node_id"`
-	DeliveryMode string `yaml:"delivery_mode"`
+	DeliveryMode string `yaml:"delivery_mode"` // "grpc" or "broker"
 }
 
 type RedisConfig struct {
@@ -51,20 +58,44 @@ type GRPCConfig struct {
 var Cfg *Config
 
 func LoadConfig(path string) (*Config, error) {
-	Cfg = &Config{
+	// Set default values
+	config := &Config{
 		Server: ServerConfig{
-			Port:   8080,
-			NodeID: "gateway-node-01",
+			Port:         8080,
+			NodeID:       "gateway-node-01",
+			DeliveryMode: "grpc",
+		},
+		Redis: RedisConfig{
+			Addr: "localhost:6379",
+			DB:   0,
 		},
 		NATS: NATSConfig{
 			URL:                   "nats://localhost:4222",
 			InboundSubject:        "chat.inbound",
 			OutboundSubjectPrefix: "chat.gateway.",
 		},
+		GRPC: GRPCConfig{
+			Port:           50051,
+			AdvertisedAddr: "localhost:50051",
+		},
 		Jwt: JwtConfig{
 			AccessTokenSecret: "secret",
 			AccessTokenExpiry: 3600,
 		},
+		Pres: PresenceConfig{
+			TTL: 60,
+		},
 	}
+
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			if err := yaml.Unmarshal(data, config); err != nil {
+				return nil, fmt.Errorf("failed to parse yaml config: %w", err)
+			}
+		}
+	}
+
+	Cfg = config
 	return Cfg, nil
 }

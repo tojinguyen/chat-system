@@ -40,3 +40,27 @@ type SendMessagePayload struct {
 type FailedToSendPayload struct {
 	Error string `json:"error"`
 }
+
+type MessageDeliveryPayload struct {
+	MessageID      string `json:"message_id"`
+	ClientMsgID    string `json:"client_msg_id,omitempty"`
+	ConversationID string `json:"conversation_id"`
+	SenderID       string `json:"sender_id"`
+	ReceiverID     string `json:"receiver_id,omitempty"`
+	Content        string `json:"content"`
+	Type           string `json:"type"`
+	Timestamp      int64  `json:"timestamp"`
+}
+
+func (msDelivery *MessageDeliveryPayload) NewWSMessageFromDelivery() (*WSMessage, error) {
+	bytes, err := json.Marshal(msDelivery)
+	if err != nil {
+		return nil, err
+	}
+	return &WSMessage{
+		Type:        WSEventSendMessage,
+		ClientMsgID: msDelivery.ClientMsgID,
+		Timestamp:   msDelivery.Timestamp,
+		Payload:     bytes,
+	}, nil
+}

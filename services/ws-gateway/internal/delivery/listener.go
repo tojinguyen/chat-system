@@ -1,6 +1,7 @@
-package handler
+package delivery
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"ws-gateway/internal/connection"
@@ -9,6 +10,11 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/websocket"
 )
+
+type DeliveryListener interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
