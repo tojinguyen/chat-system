@@ -10,8 +10,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port   int    `yaml:"port"`
-	NodeID string `yaml:"node_id"`
+	Port         int    `yaml:"port"`
+	NodeID       string `yaml:"node_id"`
+	DeliveryMode string `yaml:"delivery_mode"`
 }
 
 type RedisConfig struct {
