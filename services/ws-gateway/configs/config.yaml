@@ -1,6 +1,7 @@
 server:
   port: 8080
   node_id: "gateway-node-01"
+  delivery_mode: "grpc"
 
 redis:
   addr: "localhost:6379"
@@ -11,3 +12,7 @@ nats:
   url: "nats://localhost:4222"
   inbound_subject: "chat.inbound"
   outbound_subject_prefix: "chat.gateway."
+
+grpc:
+  port: 50051
+  advertised_addr: "localhost:50051"
