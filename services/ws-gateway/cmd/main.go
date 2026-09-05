@@ -15,6 +15,7 @@ import (
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/connection"
 	"ws-gateway/internal/delivery"
+	"ws-gateway/internal/handler"
 	"ws-gateway/internal/presence"
 )
 
@@ -64,8 +65,9 @@ func main() {
 
 	// HTTP / WebSocket route
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", delivery.HandleWebSocket(hub, cfg.Jwt.AccessTokenSecret))
+	mux.HandleFunc("/ws", handler.HandleWebSocket(hub, cfg.Jwt.AccessTokenSecret))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
