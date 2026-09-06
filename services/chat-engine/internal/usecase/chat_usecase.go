@@ -41,7 +41,7 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 	now := time.Now().UTC()
 	msg := &domain.Message{
 		ConversationID: payload.ConversationID,
-		ID:             event.ClientMsgID, // Dùng ClientMsgID (UUIDv7) làm Message ID
+		ID:             event.ClientMsgID,
 		SenderID:       event.SenderID,
 		Content:        payload.Content,
 		CreatedAt:      now,
