@@ -26,14 +26,27 @@ services:
     networks:
       - chat-network
 
-  # ScyllaDB - High-throughput Message Store
-  scylladb:
-    image: scylladb/scylla:5.2
-    container_name: chat-scylladb
+  # Apache Cassandra - High-throughput Message Store
+  cassandra:
+    image: cassandra:5.0
+    container_name: chat-cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=chat_cluster
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - MAX_HEAP_SIZE=1024M
+      - HEAP_NEWSIZE=256M
     ports:
       - "9042:9042"
     volumes:
-      - scylla_data:/var/lib/scylla
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
       - chat-network
 
@@ -58,5 +71,5 @@ networks:
 volumes:
   postgres_data:
   redis_data:
-  scylla_data:
+  cassandra_data:
   nats_data:
