@@ -12,6 +12,7 @@ import (
 	"chat-worker/internal/consumer"
 	"chat-worker/internal/migrator"
 	"chat-worker/internal/repository"
+	"chat-worker/internal/usecase"
 )
 
 func main() {
@@ -43,7 +44,7 @@ func main() {
 
 	// Initialize Message Repository
 	messageRepo := repository.NewCassandraMessageRepository(dbSession, cfg.Database.Table)
-	_ = messageRepo // Sẵn sàng để inject vào usecase
+	chatUsecase := usecase.NewChatUsecase(messageRepo)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -53,6 +54,7 @@ func main() {
 		nc,
 		cfg.NATS.InboundSubject,
 		cfg.NATS.InboundConsumerGroup,
+		chatUsecase,
 	)
 
 	if err := inboundConsumer.Start(ctx); err != nil {
