@@ -47,9 +47,9 @@ type MessageDeliveryPayload struct {
 	ConversationID string `json:"conversation_id"`
 	SenderID       string `json:"sender_id"`
 	ReceiverID     string `json:"receiver_id,omitempty"`
-	Content        string `json:"content"`
-	Type           string `json:"type"`
-	Timestamp      int64  `json:"timestamp"`
+	Content        string                    `json:"content"`
+	Type           contracts.BrokerMessageType `json:"type"`
+	Timestamp      int64                     `json:"timestamp"`
 }
 
 func (msDelivery *MessageDeliveryPayload) NewWSMessageFromDelivery() (*WSMessage, error) {

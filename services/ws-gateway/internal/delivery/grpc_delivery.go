@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"chat-system/pkg/contracts"
 	pb "chat-system/pkg/proto"
 	"context"
 	"fmt"
@@ -62,7 +63,7 @@ func (g *GRPCListener) PushMessageToUser(ctx context.Context, req *pb.PushMessag
 		SenderID:       req.SenderId,
 		ReceiverID:     req.ReceiverId,
 		Content:        req.Content,
-		Type:           req.Type,
+		Type:           contracts.BrokerMessageType(req.Type),
 		Timestamp:      req.Timestamp,
 	}
 

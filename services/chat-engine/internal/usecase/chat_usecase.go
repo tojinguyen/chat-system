@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"chat-system/pkg/contracts"
+	"chat-worker/internal/dispatcher"
 	"chat-worker/internal/domain"
 	"chat-worker/internal/repository"
 	"context"
@@ -16,11 +17,13 @@ type ChatUsecase interface {
 }
 type chatUsecase struct {
 	messageRepo repository.MessageRepository
+	dispatcher  dispatcher.EventDispatcher
 }
 
-func NewChatUsecase(messageRepo repository.MessageRepository) ChatUsecase {
+func NewChatUsecase(messageRepo repository.MessageRepository, dispatcher dispatcher.EventDispatcher) ChatUsecase {
 	return &chatUsecase{
 		messageRepo: messageRepo,
+		dispatcher:  dispatcher,
 	}
 }
 
@@ -52,5 +55,19 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 	}
 	log.Printf("[Usecase] Message persisted successfully: msg_id=%s, conversation_id=%s, sender=%s",
 		msg.ID, msg.ConversationID, msg.SenderID)
+
+	// 4. Gửi Sender ACK về cho người gửi (Client A)
+	ackEvent := contracts.OutboundBrokerEvent{
+		MessageID:      msg.ID,
+		ClientMsgID:    event.ClientMsgID,
+		ConversationID: msg.ConversationID,
+		SenderID:       msg.SenderID,
+		Type:           contracts.BrokerEventMessageSubmitted,
+		Timestamp:      now.UnixMilli(),
+	}
+	if err := u.dispatcher.SendAckToSender(ctx, event.GatewayNode, ackEvent); err != nil {
+		// Log cảnh báo nhưng không làm fail cả luồng vì tin nhắn đã được lưu DB an toàn
+		log.Printf("[Usecase] WARN: Failed to send Sender ACK: %v", err)
+	}
 	return nil
 }

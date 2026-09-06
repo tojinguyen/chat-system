@@ -10,6 +10,7 @@ import (
 	natsclient "chat-system/pkg/nats"
 	"chat-worker/internal/config"
 	"chat-worker/internal/consumer"
+	"chat-worker/internal/dispatcher"
 	"chat-worker/internal/migrator"
 	"chat-worker/internal/repository"
 	"chat-worker/internal/usecase"
@@ -42,9 +43,11 @@ func main() {
 	}
 	defer dbSession.Close()
 
+	eventDispatcher := dispatcher.NewEventDispatcher(nc)
+
 	// Initialize Message Repository
 	messageRepo := repository.NewCassandraMessageRepository(dbSession, cfg.Database.Table)
-	chatUsecase := usecase.NewChatUsecase(messageRepo)
+	chatUsecase := usecase.NewChatUsecase(messageRepo, eventDispatcher)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
