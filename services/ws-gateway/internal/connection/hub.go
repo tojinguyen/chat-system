@@ -14,7 +14,9 @@ import (
 type PresenceService interface {
 	SetOnline(ctx context.Context, userID, deviceID, gatewayNode string, ttl time.Duration) error
 	SetOffline(ctx context.Context, userID, deviceID string) error
-	Heartbeat(ctx context.Context, userID, deviceID string, ttl time.Duration) error
+	Heartbeat(ctx context.Context, userID, deviceID, gatewayNode string, ttl time.Duration) error
+	GetUserRoutes(ctx context.Context, userID string) (map[string]string, error)
+	IsUserOnline(ctx context.Context, userID string) (bool, error)
 }
 
 // InboundPublisher is satisfied by *nats.Publisher[contracts.InboundBrokerEvent]
@@ -58,7 +60,7 @@ func (h *Hub) Run() {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 
-				if err := h.presence.SetOnline(ctx, c.UserID, c.DeviceID, config.Cfg.Server.NodeID, time.Duration(config.Cfg.Pres.TTL)); err != nil {
+				if err := h.presence.SetOnline(ctx, c.UserID, c.DeviceID, config.Cfg.Server.NodeID, time.Duration(config.Cfg.Pres.TTL)*time.Second); err != nil {
 					log.Printf("Error setting user online: %v", err)
 				}
 			}(client)

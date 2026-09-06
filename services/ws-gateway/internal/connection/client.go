@@ -61,7 +61,7 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			if err := c.Hub.presence.Heartbeat(ctx, c.UserID, c.DeviceID, time.Duration(config.Cfg.Pres.TTL)); err != nil {
+			if err := c.Hub.presence.Heartbeat(ctx, c.UserID, c.DeviceID, config.Cfg.Server.NodeID, time.Duration(config.Cfg.Pres.TTL)*time.Second); err != nil {
 				log.Printf("Error sending heartbeat for user %s: %v", c.UserID, err)
 			}
 		}(c)
