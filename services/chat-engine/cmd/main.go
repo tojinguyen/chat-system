@@ -10,6 +10,7 @@ import (
 	natsclient "chat-system/pkg/nats"
 	"chat-worker/internal/config"
 	"chat-worker/internal/consumer"
+	"chat-worker/internal/repository"
 )
 
 func main() {
@@ -26,6 +27,17 @@ func main() {
 		log.Fatalf("Failed to connect to NATS: %v", err)
 	}
 	defer nc.Close()
+
+	// Initialize Cassandra Database Session
+	dbSession, err := repository.NewCassandraSession(&cfg.Database)
+	if err != nil {
+		log.Fatalf("Failed to initialize Cassandra session: %v", err)
+	}
+	defer dbSession.Close()
+
+	// Initialize Message Repository
+	messageRepo := repository.NewCassandraMessageRepository(dbSession, cfg.Database.Table)
+	_ = messageRepo // Sẵn sàng để inject vào usecase
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
