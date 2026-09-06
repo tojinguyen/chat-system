@@ -67,9 +67,6 @@ func NewCassandraSession(cfg *config.DatabaseConfig) (*gocql.Session, error) {
 
 // NewCassandraMessageRepository creates a new instance of CassandraMessageRepository
 func NewCassandraMessageRepository(session *gocql.Session, table string) *CassandraMessageRepository {
-	if table == "" {
-		table = "messages"
-	}
 	return &CassandraMessageRepository{
 		session: session,
 		table:   table,
@@ -96,7 +93,7 @@ func (r *CassandraMessageRepository) SaveMessage(ctx context.Context, msg *domai
 // GetMessagesByConversation retrieves recent messages for a conversation
 func (r *CassandraMessageRepository) GetMessagesByConversation(ctx context.Context, conversationID string, limit int) ([]*domain.Message, error) {
 	if limit <= 0 {
-		limit = 50
+		return nil, nil
 	}
 
 	query := fmt.Sprintf(`

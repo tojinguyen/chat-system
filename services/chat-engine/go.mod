@@ -4,12 +4,13 @@ go 1.25.0
 
 require (
 	github.com/gocql/gocql v1.7.0
+	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/nats-io/nats.go v1.53.1
 	go.yaml.in/yaml/v2 v2.4.4
 )
 
 require (
-	github.com/golang/snappy v0.0.3 // indirect
+	github.com/golang/snappy v1.0.0 // indirect
 	github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/nats-io/nkeys v0.4.15 // indirect

@@ -10,6 +10,7 @@ import (
 	natsclient "chat-system/pkg/nats"
 	"chat-worker/internal/config"
 	"chat-worker/internal/consumer"
+	"chat-worker/internal/migrator"
 	"chat-worker/internal/repository"
 )
 
@@ -20,6 +21,11 @@ func main() {
 	}
 
 	log.Printf("Starting Chat Engine worker: %s", cfg.Worker.ID)
+
+	// Run Database Schema Migrations
+	if err := migrator.Run(&cfg.Database); err != nil {
+		log.Fatalf("Database migration failed: %v", err)
+	}
 
 	// Connect to NATS Broker
 	nc, err := natsclient.Connect(cfg.NATS.URL, "chat-worker-"+cfg.Worker.ID)
