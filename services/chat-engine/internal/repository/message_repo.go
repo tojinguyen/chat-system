@@ -79,8 +79,8 @@ func NewCassandraMessageRepository(session *gocql.Session, table string) *Cassan
 // SaveMessage inserts a new message into Cassandra
 func (r *CassandraMessageRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
 	query := fmt.Sprintf(`
-		INSERT INTO %s (conversation_id, id, sender_id, content, media_url, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO %s (conversation_id, id, sender_id, content, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`, r.table)
 
 	return r.session.Query(query,
@@ -88,7 +88,6 @@ func (r *CassandraMessageRepository) SaveMessage(ctx context.Context, msg *domai
 		msg.ID,
 		msg.SenderID,
 		msg.Content,
-		msg.MediaURL,
 		msg.CreatedAt,
 		msg.UpdatedAt,
 	).WithContext(ctx).Exec()
@@ -101,7 +100,7 @@ func (r *CassandraMessageRepository) GetMessagesByConversation(ctx context.Conte
 	}
 
 	query := fmt.Sprintf(`
-		SELECT conversation_id, id, sender_id, content, media_url, created_at, updated_at
+		SELECT conversation_id, id, sender_id, content, created_at, updated_at
 		FROM %s
 		WHERE conversation_id = ?
 		LIMIT ?
@@ -111,16 +110,15 @@ func (r *CassandraMessageRepository) GetMessagesByConversation(ctx context.Conte
 	defer iter.Close()
 
 	var messages []*domain.Message
-	var convID, id, senderID, content, mediaURL string
+	var convID, id, senderID, content string
 	var createdAt, updatedAt time.Time
 
-	for iter.Scan(&convID, &id, &senderID, &content, &mediaURL, &createdAt, &updatedAt) {
+	for iter.Scan(&convID, &id, &senderID, &content, &createdAt, &updatedAt) {
 		messages = append(messages, &domain.Message{
 			ConversationID: convID,
 			ID:             id,
 			SenderID:       senderID,
 			Content:        content,
-			MediaURL:       mediaURL,
 			CreatedAt:      createdAt,
 			UpdatedAt:      updatedAt,
 		})

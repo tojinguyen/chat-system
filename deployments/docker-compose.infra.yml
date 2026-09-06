@@ -50,6 +50,19 @@ services:
     networks:
       - chat-network
 
+  # Cassandra Schema Migration Runner
+  cassandra-init:
+    image: cassandra:5.0
+    container_name: chat-cassandra-init
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./cassandra/init.cql:/init.cql
+    entrypoint: ["cqlsh", "cassandra", "9042", "-f", "/init.cql"]
+    networks:
+      - chat-network
+
   # NATS Server with JetStream enabled
   nats:
     image: nats:latest
