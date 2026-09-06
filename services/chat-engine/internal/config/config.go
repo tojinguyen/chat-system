@@ -34,9 +34,10 @@ type DatabaseConfig struct {
 }
 
 type RedisConfig struct {
-	Addr     string `yaml:"addr"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
+	Addr                  string `yaml:"addr"`
+	Password              string `yaml:"password"`
+	DB                    int    `yaml:"db"`
+	IdempotencyTTLSeconds int    `yaml:"idempotency_ttl_seconds"`
 }
 
 var Cfg *Config

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	natsclient "chat-system/pkg/nats"
 	"chat-worker/internal/config"
@@ -14,6 +15,8 @@ import (
 	"chat-worker/internal/migrator"
 	"chat-worker/internal/repository"
 	"chat-worker/internal/usecase"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -43,11 +46,22 @@ func main() {
 	}
 	defer dbSession.Close()
 
+	// Initialize Redis Client
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	defer redisClient.Close()
+
+	// Initialize Repositories & Dispatcher
+	idempotencyTTL := time.Duration(cfg.Redis.IdempotencyTTLSeconds) * time.Second
+	idempotencyRepo := repository.NewRedisIdempotencyRepository(redisClient, idempotencyTTL)
+	messageRepo := repository.NewCassandraMessageRepository(dbSession, cfg.Database.Table)
 	eventDispatcher := dispatcher.NewEventDispatcher(nc)
 
-	// Initialize Message Repository
-	messageRepo := repository.NewCassandraMessageRepository(dbSession, cfg.Database.Table)
-	chatUsecase := usecase.NewChatUsecase(messageRepo, eventDispatcher)
+	// Initialize Usecase
+	chatUsecase := usecase.NewChatUsecase(messageRepo, idempotencyRepo, eventDispatcher)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -11,3 +11,6 @@ Thư mục này lưu trữ các bài học, phân tích chuyên sâu về các v
 
 2. [02. Dual-Write Partial Failure, Poison Pill & State Reconciliation](file:///d:/BACKEND/PROJECTS/chat-system/knowledge/02_dual_write_partial_failure_and_state_reconciliation.md)
    - *Nội dung:* Bài toán thất bại một phần khi lưu DB và gửi ACK, phân tích trade-off giữa `return err` vs `return nil`, hiện tượng Phantom Message và cơ chế State Reconciliation 2 chiều.
+
+3. [03. Idempotency State Machine, Lock Rollback & Two-Phase TTL](file:///d:/BACKEND/PROJECTS/chat-system/knowledge/03_idempotency_state_machine_and_ttl_rollback.md)
+   - *Nội dung:* Vấn đề kẹt khóa vĩnh viễn (Permanent Lockout), xử lý rollback khi DB lỗi, và giải pháp Two-Phase Idempotency State (Short TTL vs Long TTL) tự phục hồi khi server crash.
