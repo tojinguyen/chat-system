@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-engine
+  namespace: chat-system
+  labels:
+    app: chat-engine
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: chat-engine
+  template:
+    metadata:
+      labels:
+        app: chat-engine
+    spec:
+      containers:
+        - name: chat-engine
+          image: chat-system/chat-engine:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: chat-config
+            - secretRef:
+                name: chat-secrets
+          env:
+            # Tự động gán Pod name làm Worker ID
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CASSANDRA_HOSTS
+              value: "cassandra.chat-system.svc.cluster.local"
+            - name: CASSANDRA_KEYSPACE
+              value: "chat_system"
+            - name: CASSANDRA_TABLE
+              value: "messages"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"

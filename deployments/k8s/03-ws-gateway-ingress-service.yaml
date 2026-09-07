@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ws-gateway-public
+  namespace: chat-system
+  labels:
+    app: ws-gateway
+spec:
+  type: LoadBalancer # Hoặc ClusterIP nếu bạn dùng NGINX/Traefik Ingress
+  selector:
+    app: ws-gateway
+  ports:
+    - name: websocket
+      port: 80
+      targetPort: 8080
+      protocol: TCP
