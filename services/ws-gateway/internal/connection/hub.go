@@ -1,29 +1,27 @@
 package connection
 
 import (
+	"context"
+	"log"
 	"sync"
-	"ws-gateway/internal/domain"
+	"time"
 
-	"github.com/gorilla/websocket"
+	"chat-system/pkg/contracts"
+	"ws-gateway/internal/config"
+	"ws-gateway/internal/domain"
 )
 
-// Client represents a single active WebSocket connection
-type Client struct {
-	UserID   string
-	DeviceID string
-	SendChan chan *domain.WSMessage
-	Conn     *websocket.Conn
-	Hub      *Hub
+type PresenceService interface {
+	SetOnline(ctx context.Context, userID, deviceID, gatewayNode string, ttl time.Duration) error
+	SetOffline(ctx context.Context, userID, deviceID string) error
+	Heartbeat(ctx context.Context, userID, deviceID, gatewayNode string, ttl time.Duration) error
+	GetUserRoutes(ctx context.Context, userID string) (map[string]string, error)
+	IsUserOnline(ctx context.Context, userID string) (bool, error)
 }
 
-// ReadPump handles reading messages from the WebSocket connection
-func (c *Client) ReadPump() {
-	// TODO: Implement read loop from websocket
-}
-
-// WritePump handles pushing messages to the WebSocket connection
-func (c *Client) WritePump() {
-	// TODO: Implement write loop to websocket
+// InboundPublisher is satisfied by *nats.Publisher[contracts.InboundBrokerEvent]
+type InboundPublisher interface {
+	Publish(ctx context.Context, event contracts.InboundBrokerEvent) error
 }
 
 // Hub maintains the set of active clients and handles broadcasting
@@ -32,14 +30,18 @@ type Hub struct {
 	clients    map[string]map[string]*Client
 	register   chan *Client
 	unregister chan *Client
+	producer   InboundPublisher
+	presence   PresenceService
 	mu         sync.RWMutex
 }
 
-func NewHub() *Hub {
+func NewHub(producer InboundPublisher, presence PresenceService) *Hub {
 	return &Hub{
 		clients:    make(map[string]map[string]*Client),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
+		producer:   producer,
+		presence:   presence,
 	}
 }
 
@@ -54,6 +56,15 @@ func (h *Hub) Run() {
 			h.clients[client.UserID][client.DeviceID] = client
 			h.mu.Unlock()
 
+			go func(c *Client) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				if err := h.presence.SetOnline(ctx, c.UserID, c.DeviceID, config.Cfg.Server.NodeID, time.Duration(config.Cfg.Pres.TTL)*time.Second); err != nil {
+					log.Printf("Error setting user online: %v", err)
+				}
+			}(client)
+
 		case client := <-h.unregister:
 			h.mu.Lock()
 			if userClients, ok := h.clients[client.UserID]; ok {
@@ -64,6 +75,15 @@ func (h *Hub) Run() {
 			}
 			close(client.SendChan)
 			h.mu.Unlock()
+
+			go func(c *Client) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				if err := h.presence.SetOffline(ctx, c.UserID, c.DeviceID); err != nil {
+					log.Printf("Error setting user offline: %v", err)
+				}
+			}(client)
 		}
 	}
 }

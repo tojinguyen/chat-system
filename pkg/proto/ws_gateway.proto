@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package gateway;
+option go_package = "chat-system/pkg/proto/pb;pb";
+
+service WSGatewayService {
+  rpc PushMessageToUser(PushMessageRequest) returns (PushMessageResponse);
+}
+
+message PushMessageRequest {
+  string message_id = 1;
+  string client_msg_id = 2;
+  string conversation_id = 3;
+  string sender_id = 4;
+  string receiver_id = 5;
+  string content = 6;
+  string type = 7;
+  int64 timestamp = 8;
+  bytes payload = 9;
+}
+
+message PushMessageResponse {
+  bool success = 1;
+  string error_message = 2;
+}

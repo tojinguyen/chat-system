@@ -1,49 +1,66 @@
 package domain
 
-import "time"
+import (
+	"encoding/json"
 
-// EventType represents the type of WebSocket event
-type EventType string
+	"chat-system/pkg/contracts"
+)
+
+// WSEventType represents the type of WebSocket event
+type WSEventType string
 
 const (
-	EventSendMessage   EventType = "SEND_MESSAGE"
-	EventReceiveMessage EventType = "RECEIVE_MESSAGE"
-	EventAckSent       EventType = "ACK_SENT"
-	EventAckDelivered  EventType = "ACK_DELIVERED"
-	EventAckRead       EventType = "ACK_READ"
-	EventHeartbeat     EventType = "HEARTBEAT"
+	WSEventSendMessage  WSEventType = "SEND_MESSAGE"
+	WSEventFailedToSend WSEventType = "FAILED_TO_SEND"
+	WSEventHeartbeat    WSEventType = "HEARTBEAT"
 )
+
+func (t WSEventType) ToBrokerMessageType() (contracts.BrokerMessageType, bool) {
+	switch t {
+	case WSEventSendMessage:
+		return contracts.BrokerEventMessageSubmitted, true
+	default:
+		return "", false
+	}
+}
 
 // WSMessage represents the payload exchanged with client over WebSocket
 type WSMessage struct {
-	Type           EventType   `json:"type"`
-	ClientMsgID    string      `json:"client_msg_id,omitempty"`
-	MessageID      string      `json:"message_id,omitempty"`
-	ConversationID string      `json:"conversation_id,omitempty"`
-	SenderID       string      `json:"sender_id,omitempty"`
-	Content        string      `json:"content,omitempty"`
-	Timestamp      int64       `json:"timestamp,omitempty"`
-	Payload        interface{} `json:"payload,omitempty"`
+	Type        WSEventType     `json:"type"`
+	ClientMsgID string          `json:"client_msg_id,omitempty"`
+	Timestamp   int64           `json:"timestamp,omitempty"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
 }
 
-// InboundBrokerEvent represents the message forwarded from Gateway to Broker
-type InboundBrokerEvent struct {
-	ClientMsgID    string    `json:"client_msg_id"`
-	ConversationID string    `json:"conversation_id"`
-	SenderID       string    `json:"sender_id"`
-	DeviceID       string    `json:"device_id"`
-	GatewayNode    string    `json:"gateway_node"`
-	Content        string    `json:"content"`
-	SentAt         time.Time `json:"sent_at"`
+type SendMessagePayload struct {
+	ConversationID string `json:"conversation_id"`
+	Content        string `json:"content"`
 }
 
-// OutboundBrokerEvent represents the message received from Broker to be pushed to client
-type OutboundBrokerEvent struct {
-	MessageID      string    `json:"message_id"`
-	ConversationID string    `json:"conversation_id"`
-	SenderID       string    `json:"sender_id"`
-	RecipientID    string    `json:"recipient_id"`
-	DeviceID       string    `json:"device_id"`
-	Content        string    `json:"content"`
-	Timestamp      time.Time `json:"timestamp"`
+type FailedToSendPayload struct {
+	Error string `json:"error"`
+}
+
+type MessageDeliveryPayload struct {
+	MessageID      string `json:"message_id"`
+	ClientMsgID    string `json:"client_msg_id,omitempty"`
+	ConversationID string `json:"conversation_id"`
+	SenderID       string `json:"sender_id"`
+	ReceiverID     string `json:"receiver_id,omitempty"`
+	Content        string                    `json:"content"`
+	Type           contracts.BrokerMessageType `json:"type"`
+	Timestamp      int64                     `json:"timestamp"`
+}
+
+func (msDelivery *MessageDeliveryPayload) NewWSMessageFromDelivery() (*WSMessage, error) {
+	bytes, err := json.Marshal(msDelivery)
+	if err != nil {
+		return nil, err
+	}
+	return &WSMessage{
+		Type:        WSEventSendMessage,
+		ClientMsgID: msDelivery.ClientMsgID,
+		Timestamp:   msDelivery.Timestamp,
+		Payload:     bytes,
+	}, nil
 }

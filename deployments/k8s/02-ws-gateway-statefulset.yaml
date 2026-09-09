@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ws-gateway-headless
+  namespace: chat-system
+  labels:
+    app: ws-gateway
+spec:
+  clusterIP: None # ◄── Bắt buộc là None để K8s CoreDNS phân giải trực tiếp từng Pod
+  selector:
+    app: ws-gateway
+  ports:
+    - name: grpc-delivery
+      port: 50051
+      targetPort: 50051
+    - name: ws-port
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ws-gateway
+  namespace: chat-system
+spec:
+  serviceName: ws-gateway-headless # ◄── Liên kết với Service ở trên
+  replicas: 3 # ◄── Sẽ tạo: ws-gateway-0, ws-gateway-1, ws-gateway-2
+  podManagementPolicy: Parallel # ◄── Khởi động các Pod cùng lúc để scale nhanh
+  selector:
+    matchLabels:
+      app: ws-gateway
+  template:
+    metadata:
+      labels:
+        app: ws-gateway
+    spec:
+      terminationGracePeriodSeconds: 30 # Cho phép 30s để đóng kết nối WebSocket êm ái
+      containers:
+        - name: ws-gateway
+          image: chat-system/ws-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: ws-port
+            - containerPort: 50051
+              name: grpc-delivery
+          envFrom:
+            - configMapRef:
+                name: chat-config
+            - secretRef:
+                name: chat-secrets
+          env:
+            # Tự động gán tên Pod (ws-gateway-0, ws-gateway-1...) vào biến NODE_ID
+            - name: SERVER_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
