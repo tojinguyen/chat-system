@@ -113,7 +113,13 @@ func main() {
 			return
 
 		case <-dashboardTicker.C:
-			tracker.PrintDashboard(int(activeCount), *numBots, time.Since(startTime))
+			currentActive := 0
+			for _, b := range bots {
+				if b.IsConnected() {
+					currentActive++
+				}
+			}
+			tracker.PrintDashboard(currentActive, *numBots, time.Since(startTime))
 		}
 	}
 }

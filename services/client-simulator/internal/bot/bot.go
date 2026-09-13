@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,10 +25,13 @@ type Bot struct {
 	Conversations []conversation.Target
 	Tracker       *metrics.Tracker
 
-	conn     *websocket.Conn
-	inFlight sync.Map // clientMsgID -> time.Time
-	sendChan chan []byte
-	stopChan chan struct{}
+	connMu      sync.RWMutex
+	conn        *websocket.Conn
+	isConnected atomic.Bool
+
+	inFlight  sync.Map // clientMsgID -> time.Time
+	sendChan  chan []byte
+	stopChan  chan struct{}
 	closeOnce sync.Once
 }
 
@@ -56,6 +60,11 @@ func NewBot(session *auth.BotSession, wsURL string, targets []conversation.Targe
 	}
 }
 
+// IsConnected kiểm tra bot có đang giữ kết nối WebSocket sống hay không
+func (b *Bot) IsConnected() bool {
+	return b.isConnected.Load()
+}
+
 // Connect thiết lập kết nối WebSocket tới WS Gateway
 func (b *Bot) Connect(ctx context.Context) error {
 	u, err := url.Parse(b.WSURL)
@@ -77,47 +86,86 @@ func (b *Bot) Connect(ctx context.Context) error {
 		return fmt.Errorf("bot %s dial error: %w", b.Session.Username, err)
 	}
 
+	b.connMu.Lock()
+	if b.conn != nil {
+		_ = b.conn.Close()
+	}
 	b.conn = conn
+	b.connMu.Unlock()
+
+	b.isConnected.Store(true)
 	return nil
 }
 
 // Start bắt đầu các pump: read, write, heartbeat, và traffic generator
 func (b *Bot) Start(ctx context.Context, sendInterval time.Duration) {
-	go b.readPump()
-	go b.writePump()
+	go b.lifecyclePump(ctx)
+	go b.writePump(ctx)
 	go b.heartbeatPump(ctx)
 	go b.trafficPump(ctx, sendInterval)
 }
 
 func (b *Bot) Stop() {
 	b.closeOnce.Do(func() {
+		b.isConnected.Store(false)
 		close(b.stopChan)
+		b.connMu.Lock()
 		if b.conn != nil {
 			_ = b.conn.Close()
 		}
+		b.connMu.Unlock()
 	})
 }
 
-func (b *Bot) readPump() {
-	defer b.Stop()
-
-	type innerPayload struct {
-		MessageID   string `json:"message_id"`
-		ClientMsgID string `json:"client_msg_id"`
-		SenderID    string `json:"sender_id"`
-		ReceiverID  string `json:"receiver_id"`
-		Type        string `json:"type"`
-	}
-
+// lifecyclePump quản lý vòng đời kết nối: đọc tin nhắn và tự động Reconnect khi mất mạng
+func (b *Bot) lifecyclePump(ctx context.Context) {
 	for {
-		_, data, err := b.conn.ReadMessage()
-		if err != nil {
+		select {
+		case <-ctx.Done():
 			return
+		case <-b.stopChan:
+			return
+		default:
+		}
+
+		if !b.IsConnected() {
+			b.reconnect(ctx)
+			continue
+		}
+
+		b.connMu.RLock()
+		conn := b.conn
+		b.connMu.RUnlock()
+
+		if conn == nil {
+			b.reconnect(ctx)
+			continue
+		}
+
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			// Socket bị đứt (Node Gateway sập hoặc reset)
+			b.isConnected.Store(false)
+			b.connMu.Lock()
+			if b.conn != nil {
+				_ = b.conn.Close()
+				b.conn = nil
+			}
+			b.connMu.Unlock()
+			continue
 		}
 
 		var env wsEnvelope
 		if err := json.Unmarshal(data, &env); err != nil {
 			continue
+		}
+
+		type innerPayload struct {
+			MessageID   string `json:"message_id"`
+			ClientMsgID string `json:"client_msg_id"`
+			SenderID    string `json:"sender_id"`
+			ReceiverID  string `json:"receiver_id"`
+			Type        string `json:"type"`
 		}
 
 		var inner innerPayload
@@ -130,7 +178,7 @@ func (b *Bot) readPump() {
 			msgID = inner.ClientMsgID
 		}
 
-		// 1. Kiểm tra xem có phải Sender ACK của tin nhắn do chính Bot này gửi đi không
+		// 1. Kiểm tra Sender ACK
 		if msgID != "" {
 			if val, ok := b.inFlight.LoadAndDelete(msgID); ok {
 				sentAt := val.(time.Time)
@@ -140,7 +188,7 @@ func (b *Bot) readPump() {
 			}
 		}
 
-		// 2. Nếu không phải tin nhắn do bot này gửi -> Tin nhắn nhận được từ bạn chat
+		// 2. Tin nhắn nhận được từ bạn chat
 		if inner.SenderID != "" && inner.SenderID != b.Session.UserID {
 			b.Tracker.RecordDelivered()
 		} else if env.Type == "SEND_MESSAGE" && msgID == "" {
@@ -149,29 +197,70 @@ func (b *Bot) readPump() {
 	}
 }
 
-func (b *Bot) writePump() {
-	ticker := time.NewTicker(20 * time.Second)
-	defer func() {
-		ticker.Stop()
-		b.Stop()
-	}()
+// reconnect thực hiện kết nối lại với Exponential Backoff
+func (b *Bot) reconnect(ctx context.Context) {
+	backoff := 1 * time.Second
+	maxBackoff := 8 * time.Second
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
+		case <-b.stopChan:
+			return
+		case <-time.After(backoff):
+		}
+
+		if err := b.Connect(ctx); err == nil {
+			// Reconnect thành công!
+			return
+		}
+
+		// Tăng thời gian chờ thử lại (Backoff x 2)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+func (b *Bot) writePump(ctx context.Context) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
 		case <-b.stopChan:
 			return
 		case msg, ok := <-b.sendChan:
 			if !ok {
 				return
 			}
-			if err := b.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			if !b.IsConnected() {
 				b.Tracker.RecordError()
-				return
+				continue
+			}
+
+			b.connMu.RLock()
+			conn := b.conn
+			b.connMu.RUnlock()
+
+			if conn != nil {
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					b.isConnected.Store(false)
+					b.Tracker.RecordError()
+				}
 			}
 		case <-ticker.C:
-			// Ping định kỳ
-			if err := b.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return
+			if b.IsConnected() {
+				b.connMu.RLock()
+				conn := b.conn
+				b.connMu.RUnlock()
+				if conn != nil {
+					_ = conn.WriteMessage(websocket.PingMessage, nil)
+				}
 			}
 		}
 	}
@@ -188,6 +277,9 @@ func (b *Bot) heartbeatPump(ctx context.Context) {
 		case <-b.stopChan:
 			return
 		case <-ticker.C:
+			if !b.IsConnected() {
+				continue
+			}
 			hbEnv := wsEnvelope{
 				Type:      "HEARTBEAT",
 				Timestamp: time.Now().UnixMilli(),
@@ -206,7 +298,6 @@ func (b *Bot) trafficPump(ctx context.Context, interval time.Duration) {
 		return
 	}
 
-	// Thêm chút jitter ngẫu nhiên để các bot không bắn cùng mili-giây
 	jitter := time.Duration(rand.Intn(500)) * time.Millisecond
 	time.Sleep(jitter)
 
@@ -220,10 +311,13 @@ func (b *Bot) trafficPump(ctx context.Context, interval time.Duration) {
 		case <-b.stopChan:
 			return
 		case <-ticker.C:
-			// Chọn ngẫu nhiên 1 trong các target conversation
+			if !b.IsConnected() {
+				b.Tracker.RecordError()
+				continue
+			}
+
 			target := b.Conversations[rand.Intn(len(b.Conversations))]
 
-			// Tạo UUIDv7 làm client_msg_id (Time-ordered UUID)
 			clientMsgID, err := uuid.NewV7()
 			var msgIDStr string
 			if err == nil {
@@ -251,7 +345,6 @@ func (b *Bot) trafficPump(ctx context.Context, interval time.Duration) {
 				continue
 			}
 
-			// Ghi nhận thời điểm gửi để đo Latency
 			b.inFlight.Store(msgIDStr, time.Now())
 			b.Tracker.RecordSent()
 
