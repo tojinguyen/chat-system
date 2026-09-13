@@ -1,41 +1,6 @@
-.PHONY: help infra-up infra-down infra-logs app-up app-down app-build app-logs run-api run-gateway run-worker run-noti migrate-run migrate-revert all-up all-down
+CLUSTER ?= chat-cluster
 
-# ==========================================
-# 1. HELP & USAGE
-# ==========================================
-help:
-	@echo "================================================================"
-	@echo "                    CHAT SYSTEM COMMANDS                        "
-	@echo "================================================================"
-	@echo "1. INFRASTRUCTURE:"
-	@echo "  make infra-up        - Start Postgres, Redis, ScyllaDB, NATS"
-	@echo "  make infra-down      - Stop all infrastructure services"
-	@echo "  make infra-logs      - View infrastructure logs"
-	@echo ""
-	@echo "2. FULL APPLICATION (DOCKER COMPOSE):"
-	@echo "  make app-up          - Start application services in Docker"
-	@echo "  make app-build       - Rebuild images and start services"
-	@echo "  make app-down        - Stop application services"
-	@echo "  make app-logs        - View logs of all applications"
-	@echo ""
-	@echo "3. LOCAL DEVELOPMENT (RUN DIRECTLY ON HOST):"
-	@echo "  make run-api         - Run NestJS API Service (Watch mode)"
-	@echo "  make run-gateway     - Run WebSocket Gateway (Go)"
-	@echo "  make run-worker      - Run Chat Worker (Go)"
-	@echo "  make run-noti        - Run Notification Service (Go)"
-	@echo ""
-	@echo "4. DATABASE & MIGRATIONS (API-SERVICE):"
-	@echo "  make migrate-run     - Run TypeORM migrations"
-	@echo "  make migrate-revert  - Revert the most recent migration"
-	@echo ""
-	@echo "5. ALL-IN-ONE:"
-	@echo "  make all-up          - Start Infrastructure + Application"
-	@echo "  make all-down        - Stop everything"
-	@echo "================================================================"
-
-# ==========================================
-# 2. INFRASTRUCTURE
-# ==========================================
+# --- Infrastructure (Host) ---
 infra-up:
 	docker compose -f deployments/docker-compose.infra.yml up -d
 
@@ -45,47 +10,47 @@ infra-down:
 infra-logs:
 	docker compose -f deployments/docker-compose.infra.yml logs -f
 
-# ==========================================
-# 3. DOCKER COMPOSE APP
-# ==========================================
-app-up:
-	docker compose -f deployments/docker-compose.yml up -d
+# --- Kind Cluster ---
+kind-up:
+	kind create cluster --name $(CLUSTER) --config deployments/k8s/kind-config.yaml
 
-app-build:
-	docker compose -f deployments/docker-compose.yml up -d --build
+kind-down:
+	kind delete cluster --name $(CLUSTER)
 
-app-down:
-	docker compose -f deployments/docker-compose.yml down
+# --- Build & Load Images to Kind ---
+build:
+	docker build -t chat-system/ws-gateway:latest -f services/ws-gateway/Dockerfile .
+	docker build -t chat-system/chat-engine:latest -f services/chat-engine/Dockerfile .
+	docker build -t chat-system/api-service:latest -f services/api-service/Dockerfile .
 
-app-logs:
-	docker compose -f deployments/docker-compose.yml logs -f
+load:
+	kind load docker-image chat-system/ws-gateway:latest --name $(CLUSTER)
+	kind load docker-image chat-system/chat-engine:latest --name $(CLUSTER)
+	kind load docker-image chat-system/api-service:latest --name $(CLUSTER)
 
-# ==========================================
-# 4. LOCAL DEVELOPMENT
-# ==========================================
-run-api:
-	cd services/api-service && npm run start:dev
+build-load: build load
 
-run-gateway:
-	cd services/ws-gateway && go run cmd/main.go
+# --- Kubernetes Deploy & Ops ---
+k8s-deploy:
+	kubectl apply -f deployments/k8s/
 
-run-worker:
-	cd services/chat-worker && go run cmd/main.go
+k8s-delete:
+	kubectl delete -f deployments/k8s/
 
-run-noti:
-	cd services/notification-service && go run cmd/main.go
+k8s-restart:
+	kubectl rollout restart statefulset/ws-gateway -n chat-system
+	kubectl rollout restart deployment/chat-engine -n chat-system
+	kubectl rollout restart deployment/api-service -n chat-system
 
-# ==========================================
-# 5. DATABASE MIGRATIONS
-# ==========================================
-migrate-run:
-	cd services/api-service && npm run migration:run
+k8s-status:
+	kubectl get pods,svc,statefulset -n chat-system -o wide
 
-migrate-revert:
-	cd services/api-service && npm run migration:revert
+# --- K8s Logs ---
+logs-gw:
+	kubectl logs -l app=ws-gateway -n chat-system -f
 
-# ==========================================
-# 6. ALL-IN-ONE
-# ==========================================
-all-up: infra-up app-up
-all-down: app-down infra-down
+logs-engine:
+	kubectl logs -l app=chat-engine -n chat-system -f
+
+logs-api:
+	kubectl logs -l app=api-service -n chat-system -f

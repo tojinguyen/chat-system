@@ -1,0 +1,12 @@
+# deployments/k8s/kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Map port 80/443 của Ingress hoặc Gateway ra ngoài máy host nếu cần
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+  - role: worker
+  - role: worker
