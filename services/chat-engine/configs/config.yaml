@@ -22,3 +22,8 @@ redis:
   password: ""
   db: 0
   idempotency_ttl_seconds: 86400
+
+delivery:
+  mode: "grpc" # "grpc" or "broker"
+  grpc_port: 50051
+  grpc_service_suffix: ""

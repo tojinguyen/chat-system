@@ -13,6 +13,7 @@ import (
 	"chat-worker/internal/consumer"
 	"chat-worker/internal/dispatcher"
 	"chat-worker/internal/migrator"
+	"chat-worker/internal/presence"
 	"chat-worker/internal/repository"
 	"chat-worker/internal/usecase"
 
@@ -54,15 +55,21 @@ func main() {
 	})
 	defer redisClient.Close()
 
-	// Initialize Repositories & Dispatcher
+	// Initialize Repositories, Presence & Dispatcher
 	idempotencyTTL := time.Duration(cfg.Redis.IdempotencyTTLSeconds) * time.Second
 	idempotencyRepo := repository.NewRedisIdempotencyRepository(redisClient, idempotencyTTL)
+	presenceReader := presence.NewPresenceReader(redisClient)
 	messageRepo := repository.NewCassandraMessageRepository(dbSession, cfg.Database.Table)
-	eventDispatcher := dispatcher.NewEventDispatcher(nc)
+
+	eventDispatcher, err := dispatcher.NewEventDispatcher(&cfg.Delivery, nc)
+	if err != nil {
+		log.Fatalf("Failed to initialize event dispatcher: %v", err)
+	}
+	defer eventDispatcher.Close()
 
 	// Initialize Usecase
 	dbTimeout := time.Duration(cfg.Database.TimeoutSeconds) * time.Second
-	chatUsecase := usecase.NewChatUsecase(messageRepo, idempotencyRepo, eventDispatcher, dbTimeout)
+	chatUsecase := usecase.NewChatUsecase(messageRepo, idempotencyRepo, presenceReader, eventDispatcher, dbTimeout)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

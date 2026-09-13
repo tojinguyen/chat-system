@@ -4,6 +4,7 @@ import (
 	"chat-system/pkg/contracts"
 	"chat-worker/internal/dispatcher"
 	"chat-worker/internal/domain"
+	"chat-worker/internal/presence"
 	"chat-worker/internal/repository"
 	"context"
 	"encoding/json"
@@ -18,6 +19,7 @@ type ChatUsecase interface {
 type chatUsecase struct {
 	messageRepo     repository.MessageRepository
 	idempotencyRepo repository.IdempotencyRepository
+	presenceReader  presence.PresenceReader
 	dispatcher      dispatcher.EventDispatcher
 	dbTimeout       time.Duration
 }
@@ -25,6 +27,7 @@ type chatUsecase struct {
 func NewChatUsecase(
 	messageRepo repository.MessageRepository,
 	idempotencyRepo repository.IdempotencyRepository,
+	presenceReader presence.PresenceReader,
 	dispatcher dispatcher.EventDispatcher,
 	dbTimeout time.Duration,
 ) ChatUsecase {
@@ -34,6 +37,7 @@ func NewChatUsecase(
 	return &chatUsecase{
 		messageRepo:     messageRepo,
 		idempotencyRepo: idempotencyRepo,
+		presenceReader:  presenceReader,
 		dispatcher:      dispatcher,
 		dbTimeout:       dbTimeout,
 	}
@@ -109,5 +113,43 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 		// Log cảnh báo nhưng không làm fail cả luồng vì tin nhắn đã được lưu DB an toàn
 		log.Printf("[Usecase] WARN: Failed to send Sender ACK: %v", err)
 	}
+
+	// 6. OUTBOUND DELIVERY: Tra cứu Presence và chuyển tiếp tin nhắn tới người nhận
+	receiverID := payload.ReceiverID
+	if receiverID != "" && receiverID != event.SenderID {
+		routes, err := u.presenceReader.GetUserRoutes(ctx, receiverID)
+		if err != nil {
+			log.Printf("[Usecase] ERROR: Failed to query presence for receiver %s: %v", receiverID, err)
+		}
+
+		if len(routes) > 0 {
+			// Gom nhóm theo unique gatewayNode để tránh gửi trùng lặp nếu 1 node có nhiều device
+			dispatchedNodes := make(map[string]bool)
+			for _, gatewayNode := range routes {
+				if dispatchedNodes[gatewayNode] {
+					continue
+				}
+				dispatchedNodes[gatewayNode] = true
+
+				outboundMsg := contracts.OutboundBrokerEvent{
+					MessageID:      msg.ID,
+					ClientMsgID:    event.ClientMsgID,
+					ConversationID: msg.ConversationID,
+					SenderID:       msg.SenderID,
+					ReceiverID:     receiverID,
+					Content:        msg.Content,
+					Type:           contracts.BrokerEventMessageSubmitted,
+					Timestamp:      now.UnixMilli(),
+				}
+
+				if err := u.dispatcher.DispatchToGateway(ctx, gatewayNode, outboundMsg); err != nil {
+					log.Printf("[Usecase] ERROR: Failed to dispatch message to receiver gateway %s: %v", gatewayNode, err)
+				}
+			}
+		} else {
+			log.Printf("[Usecase] Receiver %s is offline. Skipping realtime push.", receiverID)
+		}
+	}
+
 	return nil
 }

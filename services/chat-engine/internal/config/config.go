@@ -13,6 +13,7 @@ type Config struct {
 	NATS     NATSConfig     `yaml:"nats"`
 	Database DatabaseConfig `yaml:"database"`
 	Redis    RedisConfig    `yaml:"redis"`
+	Delivery DeliveryConfig `yaml:"delivery"`
 }
 
 type WorkerConfig struct {
@@ -40,6 +41,12 @@ type RedisConfig struct {
 	Password              string `yaml:"password" env:"REDIS_PASSWORD"`
 	DB                    int    `yaml:"db" env:"REDIS_DB" envDefault:"0"`
 	IdempotencyTTLSeconds int    `yaml:"idempotency_ttl_seconds" env:"REDIS_IDEMPOTENCY_TTL" envDefault:"86400"`
+}
+
+type DeliveryConfig struct {
+	Mode              string `yaml:"mode" env:"DELIVERY_MODE" envDefault:"grpc"` // "grpc" or "broker"
+	GRPCPort          int    `yaml:"grpc_port" env:"GRPC_PORT" envDefault:"50051"`
+	GRPCServiceSuffix string `yaml:"grpc_service_suffix" env:"GRPC_SERVICE_SUFFIX" envDefault:""`
 }
 
 var Cfg *Config
