@@ -40,27 +40,34 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
+.dockerignore
 .gitignore
 AGENTS.md
 deployments/docker-compose.infra.yml
-deployments/docker-compose.yml
+deployments/k8s/00-external-infra.yaml
 deployments/k8s/00-namespace.yaml
 deployments/k8s/01-configmap-secrets.yaml
 deployments/k8s/02-ws-gateway-statefulset.yaml
 deployments/k8s/03-ws-gateway-ingress-service.yaml
 deployments/k8s/04-chat-engine-deployment.yaml
+deployments/k8s/05-api-service-deployment.yaml
+deployments/k8s/06-nginx-gateway.yaml
+deployments/kind-config.yaml
 design/1 Database Design & Data Modeling 3c23b644f0b8806193cbcb2d52d62f6d.md
 design/image.png
 design/Part 1 Requirements, Constraints, and Capacity Est 3be3b644f0b88019bd11df04cdaf19fe.md
 design/Part 2 High-Level Architecture & End-to-End Messag 3be3b644f0b8804aa7cdc7af6fe247cd.md
-knowledge/01_cassandra_upsert_vs_rdbms_and_idempotency.md
-knowledge/02_dual_write_partial_failure_and_state_reconciliation.md
-knowledge/03_idempotency_state_machine_and_ttl_rollback.md
-knowledge/README.md
+knowledge/edge_cases/edge_cases_and_observability.md
+knowledge/edge_cases/README.md
+knowledge/system_design/01_cassandra_upsert_vs_rdbms_and_idempotency.md
+knowledge/system_design/02_dual_write_partial_failure_and_state_reconciliation.md
+knowledge/system_design/03_idempotency_state_machine_and_ttl_rollback.md
+knowledge/system_design/README.md
 Makefile
 pkg/contracts/events.go
 pkg/contracts/topics.go
 pkg/go.mod
+pkg/grpcclient/gateway_client_manager.go
 pkg/nats/client.go
 pkg/nats/publisher.go
 pkg/nats/subscriber.go
@@ -140,6 +147,8 @@ services/chat-engine/Dockerfile
 services/chat-engine/go.mod
 services/chat-engine/internal/config/config.go
 services/chat-engine/internal/consumer/consumer.go
+services/chat-engine/internal/dispatcher/dispatcher_grpc.go
+services/chat-engine/internal/dispatcher/dispatcher_nats.go
 services/chat-engine/internal/dispatcher/dispatcher.go
 services/chat-engine/internal/domain/message.go
 services/chat-engine/internal/migrator/migrator.go
@@ -147,9 +156,17 @@ services/chat-engine/internal/presence/presence.go
 services/chat-engine/internal/repository/idempotency_repo.go
 services/chat-engine/internal/repository/message_repo.go
 services/chat-engine/internal/usecase/chat_usecase.go
-services/chat-engine/migrations/000001_init_schema.down.cql
-services/chat-engine/migrations/000001_init_schema.up.cql
+services/chat-engine/migrations/000001_create_messages_table.down.cql
+services/chat-engine/migrations/000001_create_messages_table.up.cql
+services/chat-engine/migrations/000002_create_read_receipts_table.down.cql
+services/chat-engine/migrations/000002_create_read_receipts_table.up.cql
 services/chat-engine/migrations/fs.go
+services/client-simulator/cmd/main.go
+services/client-simulator/go.mod
+services/client-simulator/internal/auth/client.go
+services/client-simulator/internal/bot/bot.go
+services/client-simulator/internal/conversation/manager.go
+services/client-simulator/internal/metrics/tracker.go
 services/notification-service/cmd/main.go
 services/notification-service/configs/config.yaml
 services/notification-service/Dockerfile
@@ -171,55 +188,61 @@ services/ws-gateway/internal/connection/hub.go
 services/ws-gateway/internal/delivery/grpc_delivery.go
 services/ws-gateway/internal/delivery/listener.go
 services/ws-gateway/internal/delivery/nats_delivery.go
-services/ws-gateway/internal/domain/event.go
 services/ws-gateway/internal/handler/ws_handler.go
+services/ws-gateway/internal/payload/ws_payload.go
 services/ws-gateway/internal/presence/presence.go
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
 
-<file path="AGENTS.md">
-# AI Backend Mentor & Distributed Systems Architect Guidelines
+<file path=".dockerignore">
+.git
+.vscode
+services/api-service/node_modules
+services/api-service/dist
+tmp/
+bin/
+*.log
+repomix-output.xml
+</file>
 
-Bạn đóng vai trò là một **Staff/Senior Backend Architect & Systems Mentor**. Mục tiêu của bạn không chỉ là sinh mã nguồn mà là **đào tạo và định hình tư duy của người dùng trở thành một Senior Backend Engineer thực thụ**, có khả năng thiết kế và vận hành các hệ thống phân tán quy mô lớn (High Throughput, Low Latency, High Availability).
-
+<file path="deployments/k8s/00-external-infra.yaml">
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
 ---
-
-## 1. Phong cách giảng dạy & Phản hồi (Teaching & Communication Style)
-- **Giao tiếp hoàn toàn bằng Tiếng Việt.**
-- **Tư duy "Why trước How":** Trước khi đưa ra bất kỳ đoạn code nào, luôn giải thích bản chất kiến trúc, lý do tại sao chọn giải pháp này (Architecture Trade-offs), và các lựa chọn thay thế (Alternative Approaches).
-- **Hướng dẫn từng bước (Step-by-Step Mentoring):** Cung cấp các đoạn code mẫu sạch (Clean Code), chuẩn mực, có comment giải thích rõ ràng để người dùng tự tay đọc hiểu và tích hợp vào dự án.
-- **Không viết code thay toàn bộ khi người dùng muốn học:** Chia nhỏ vấn đề thành các bài học/mô-đun logic để người dùng nắm chắc từng phần.
-
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
 ---
-
-## 2. Tiêu chuẩn kiến thức cần đào sâu (Deep-Dive Focus Areas)
-
-Mọi giải pháp kỹ thuật cần được phân tích dưới lăng kính của một kỹ sư backend cấp cao:
-
-### A. Hệ thống phân tán (Distributed Systems)
-- **Đảm bảo tính nhất quán dữ liệu:** Mô hình Consistency (Eventual Consistency, Strong Consistency, Linearizability), CAP/PACELC Theorem.
-- **Ngữ cảnh bất đồng bộ & Broker:** Out-of-order delivery, At-least-once delivery, Idempotency patterns, Message deduplication, Poison pill messages.
-- **Xử lý sự cố mạng & Node failure:** Network partitions, Split-brain, Circuit Breakers, Exponential Backoff, Dead Letter Queues (DLQ).
-
-### B. Cơ sở dữ liệu & Storage Engine
-- **NoSQL / LSM-Tree vs B-Tree:** Hiểu sâu cơ chế ghi của Cassandra/ScyllaDB (CommitLog, MemTable, SSTable, Compaction), cách thiết kế Partition Key / Clustering Key để tránh Hotspot Node và Tombstone issues.
-- **Caching & In-memory (Redis):** Cache Stampede, Cache Penetration, Cache Breakdown, Atomic operations (`SETNX`, Lua script), TTL Strategy.
-
-### C. Concurrency & Performance trong Go
-- **Concurrency Patterns:** Worker Pools, Fan-in/Fan-out, Context cancellation & Timeout propagation, Race conditions, Deadlocks, Memory leak do Goroutine leak.
-- **Clean Architecture & Idiomatic Go:** Tách bạch Domain, Repository, Usecase, Delivery; Dependency Injection; Defensive programming; Error wrapping (`%w`).
-
+apiVersion: v1
+kind: Service
+metadata:
+  name: cassandra
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
 ---
-
-## 3. Quy trình hướng dẫn tính năng mới (Feature Workflow)
-
-Khi hướng dẫn một tính năng:
-1. **Phân tích bài toán & Edge Cases:** Liệt kê các kịch bản lỗi, race condition, hoặc điểm nghẽn có thể xảy ra ở quy mô production.
-2. **Thiết kế Contract / Data Flow:** Vẽ luồng dữ liệu (Data Flow) và cấu trúc dữ liệu.
-3. **Cung cấp Code mẫu chuẩn Clean Code:** Code có type-safety, xử lý lỗi triệt để, idiomatic Go.
-4. **Câu hỏi tư duy / Thử thách:** Đặt câu hỏi phản biện để người dùng tự suy ngẫm và củng cố kiến thức.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
 </file>
 
 <file path="deployments/k8s/00-namespace.yaml">
@@ -254,6 +277,7 @@ data:
   WS_PORT: "8080"
   GRPC_PORT: "50051"
   DELIVERY_MODE: "grpc" # "grpc" or "broker"
+  GRPC_SERVICE_SUFFIX: ".ws-gateway-headless.chat-system.svc.cluster.local"
   PRESENCE_TTL: "60"
 ---
 apiVersion: v1
@@ -348,25 +372,6 @@ spec:
               memory: "1Gi"
 </file>
 
-<file path="deployments/k8s/03-ws-gateway-ingress-service.yaml">
-apiVersion: v1
-kind: Service
-metadata:
-  name: ws-gateway-public
-  namespace: chat-system
-  labels:
-    app: ws-gateway
-spec:
-  type: LoadBalancer # Hoặc ClusterIP nếu bạn dùng NGINX/Traefik Ingress
-  selector:
-    app: ws-gateway
-  ports:
-    - name: websocket
-      port: 80
-      targetPort: 8080
-      protocol: TCP
-</file>
-
 <file path="deployments/k8s/04-chat-engine-deployment.yaml">
 apiVersion: apps/v1
 kind: Deployment
@@ -413,6 +418,117 @@ spec:
             limits:
               cpu: "2000m"
               memory: "2Gi"
+</file>
+
+<file path="deployments/k8s/06-nginx-gateway.yaml">
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+  namespace: chat-system
+data:
+  nginx.conf: |
+    events {
+        worker_connections 2048;
+    }
+
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+
+        sendfile        on;
+        keepalive_timeout  65;
+
+        upstream api_backend {
+            server api-service.chat-system.svc.cluster.local:3000;
+        }
+
+        upstream ws_backend {
+            server ws-gateway-public.chat-system.svc.cluster.local:80;
+        }
+
+        server {
+            listen 80;
+            server_name _;
+
+            # 1. Routing WebSocket Handshake
+            location /ws {
+                proxy_pass http://ws_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "Upgrade";
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_read_timeout 3600s;
+                proxy_send_timeout 3600s;
+            }
+
+            # 2. Routing REST API
+            location / {
+                proxy_pass http://api_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_read_timeout 60s;
+            }
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-gateway
+  namespace: chat-system
+  labels:
+    app: nginx-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-gateway
+  template:
+    metadata:
+      labels:
+        app: nginx-gateway
+    spec:
+      nodeSelector:
+        ingress-ready: "true"
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              hostPort: 80
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: config-volume
+          configMap:
+            name: nginx-conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-gateway
+  namespace: chat-system
+spec:
+  type: ClusterIP
+  selector:
+    app: nginx-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
 </file>
 
 <file path="design/1 Database Design & Data Modeling 3c23b644f0b8806193cbcb2d52d62f6d.md">
@@ -762,7 +878,84 @@ Do mạng chập chờn, Client A có thể gửi lại 1 tin nhắn nhiều l�
 - Server dùng client_msg_id làm Unique Key/Deduplication Key tại Redis trong  giây. Nếu gặp ID đã xử lý, Server bỏ qua việc ghi DB và trả về ngay Success ACK cũ.
 </file>
 
-<file path="knowledge/01_cassandra_upsert_vs_rdbms_and_idempotency.md">
+<file path="knowledge/edge_cases/edge_cases_and_observability.md">
+# 📌 Edge Cases, Failure Modes & Observability Backlog
+
+Tài liệu này ghi nhận các góc tối kỹ thuật (Edge Cases), bẫy chạy đua (Race Conditions), và các kịch bản lỗi trong môi trường phân tán cần được theo dõi qua hệ thống Metrics/Logging và lên kế hoạch xử lý/tối ưu hóa sau này.
+
+---
+
+## 1. Edge Case: Phantom ACK / False Success do Race Condition giữa Redis Lock & DB Persistence
+
+### 🔍 Mô tả & Bối cảnh (Context & Failure Scenario)
+- **Vị trí:** `services/chat-engine/internal/usecase/chat_usecase.go` & `idempotency_repo.go`.
+- **Kịch bản:**
+  1. Client gửi tin nhắn `M1` (`client_msg_id = X`).
+  2. Chat Worker 1 nhận `M1`, thực hiện `AcquireLock(X)` trên Redis thành công (`SetNX`).
+  3. Chat Worker 1 bắt đầu ghi `M1` vào Cassandra (quá trình này mất vài giây hoặc timeout do mạng chập chờn / Cassandra chậm).
+  4. Trong lúc Worker 1 chưa ghi xong, Client retry hoặc NATS Broker bắn lại bản tin duplicate `M1'` (`client_msg_id = X`).
+  5. Chat Worker 2 (hoặc Worker 1) nhận `M1'`, kiểm tra `AcquireLock(X)` -> Thấy key đã tồn tại (`!isNew`).
+  6. Worker coi đây là tin nhắn trùng lặp đã hoàn tất -> **Bắn ngay `Sender ACK` về cho Client (Phantom ACK)**.
+  7. Sau đó, thao tác ghi Cassandra ở bước 3 bị **Thất Bại (Timeout / Crash)** -> Worker gọi `ReleaseLock(X)`.
+
+### ⚠️ Hậu quả (Impact)
+- **Silent Data Loss:** Client nhìn thấy tin nhắn đã gửi thành công (giao diện hiện 1 tích), nhưng thực chất tin nhắn **chưa từng được ghi vào cơ sở dữ liệu**. Khi reload app hoặc phía Receiver mở app, tin nhắn biến mất hoàn toàn.
+
+### 📊 Điểm quan sát & Metric giám sát (Observability Signals)
+- **Log cảnh báo:** `WARN: Redis idempotency check failed` hoặc `Duplicate message detected: client_msg_id=...` xuất hiện cùng thời điểm với `persistence failed`.
+- **Prometheus Metric cần bổ sung sau này:**
+  - `chat_engine_idempotency_lock_acquired_total`
+  - `chat_engine_idempotency_lock_released_on_error_total`
+  - Tỷ lệ lệch (Discrepancy) giữa tổng số `Sender ACK dispatched` và tổng số record được `INSERT` thành công vào Cassandra.
+
+### 🛠️ Giải pháp dài hạn (Long-term Remediation)
+- **FSM State Machine trên Idempotency Key:**
+  - `PROCESSING` (TTL ngắn 10-30s, đóng vai trò Distributed Mutex).
+  - `COMPLETED` (TTL dài 24h, chỉ set sau khi DB ghi thành công).
+- **Concurrent Duplicate Handling:**
+  - Nếu duplicate đến khi đang `PROCESSING`: Không gửi ACK ngay; hoặc chờ (polling 500ms) hoặc reject/NACK để Broker redeliver sau.
+
+---
+
+## 2. Edge Case: Cassandra Zombie Write sau khi Context Timeout
+
+### 🔍 Mô tả & Bối cảnh
+- Worker thiết lập `dbCtx, cancel := context.WithTimeout(ctx, dbTimeout)` (mặc định cấu hình từ `timeout_seconds`).
+- Nếu Cassandra bị quá tải hoặc Garbage Collection (GC Pause), request ở phía Go driver có thể bị timeout và trả về error, worker rollback Redis lock.
+- Tuy nhiên, coordinator node phía Cassandra có thể vẫn nhận được mutation trước đó và ghi vào CommitLog/MemTable thành công sau đó vài mili-giây.
+
+### 📊 Điểm quan sát
+- Kiểm tra các bản ghi Cassandra có `client_msg_id` tồn tại nhưng application log lại ghi nhận `persistence failed: context deadline exceeded`.
+
+---
+
+## 3. Edge Case: Receiver Connection Drop ngay sau khi Query Presence (Ghost Online)
+
+### 🔍 Mô tả & Bối cảnh
+- Chat Engine query Redis Presence thấy Client B đang online tại `gateway_node_02`.
+- Trong tích tắc trước khi Outbound Message từ NATS đến được `gateway_node_02`, Client B bị mất kết nối (rớt mạng, tắt 4G, killed app).
+- `gateway_node_02` không tìm thấy WebSocket connection trong local memory map -> Tin nhắn có nguy cơ bị drop nếu không có cơ chế fallback hoặc Receiver ACK timeout.
+
+### 🛠️ Giải pháp quan sát & xử lý
+- Đếm metric `ws_gateway_local_delivery_dropped_total`.
+- WS Gateway nếu không tìm thấy socket connection cục bộ phải có cơ chế phản hồi lại Broker hoặc publish sang `chat.notification` để bù Push Notification.
+</file>
+
+<file path="knowledge/edge_cases/README.md">
+# Danh Mục Edge Cases & Điểm Quan Sát Hệ Thống (Edge Cases & Observability Backlog)
+
+Thư mục này dùng để lưu trữ và theo dõi các góc tối kỹ thuật (Edge cases), rủi ro tiềm ẩn, và các sự cố phân tán được phát hiện trong quá trình code để tiện theo dõi, giám sát qua metric và tối ưu hóa sau này.
+
+---
+
+### Danh sách tài liệu:
+1. [Edge Cases, Failure Modes & Observability Backlog](file:///d:/BACKEND/PROJECTS/chat-system/knowledge/edge_cases/edge_cases_and_observability.md)
+   - *Phantom ACK / False Success* (Race condition Redis Idempotency vs Cassandra Failure).
+   - *Cassandra Zombie Write* (Context Timeout vs Mutation Commit).
+   - *Ghost Online Drop* (Connection drop ngay sau khi query Redis Presence).
+</file>
+
+<file path="knowledge/system_design/01_cassandra_upsert_vs_rdbms_and_idempotency.md">
 # 1. Cassandra UPSERT vs RDBMS & Bản chất Tầng Idempotency (Redis)
 
 ---
@@ -811,7 +1004,7 @@ Lưu vào Database chỉ là bước đầu tiên trong pipeline xử lý. Sau �
 - Diễn ra trong **dưới 1 mili-giây**, đóng vai trò như chiếc "khiên bảo vệ" chặn đứng mọi yêu cầu trùng lặp ngay tại cửa ngõ trước khi làm tốn tài nguyên Database và Network.
 </file>
 
-<file path="knowledge/02_dual_write_partial_failure_and_state_reconciliation.md">
+<file path="knowledge/system_design/02_dual_write_partial_failure_and_state_reconciliation.md">
 # 2. Dual-Write Partial Failure, Poison Pill & State Reconciliation
 
 ---
@@ -869,7 +1062,7 @@ Các hệ thống quy mô lớn (Telegram, WhatsApp, Discord) giải quyết tri
   - Nếu `uuid_123` chưa có ➔ Client mới thực hiện gửi lại hoặc cho phép user bấm "Thử lại".
 </file>
 
-<file path="knowledge/03_idempotency_state_machine_and_ttl_rollback.md">
+<file path="knowledge/system_design/03_idempotency_state_machine_and_ttl_rollback.md">
 # 3. Idempotency State Machine, Lock Rollback & Two-Phase TTL
 
 ---
@@ -924,35 +1117,140 @@ BƯỚC 2: SET key "COMPLETED" XX EX 86400s (Gia hạn thành khóa vĩnh viễn
 3. **Bảo vệ toàn vẹn tuyệt đối:** Một khi đã chuyển sang `COMPLETED`, không một yêu cầu retry nào có thể ghi trùng vào Database được nữa.
 </file>
 
-<file path="pkg/contracts/topics.go">
-package contracts
+<file path="pkg/go.mod">
+module chat-system/pkg
 
-import "fmt"
+go 1.25.0
 
-const (
-	// SubjectInbound is the default subject where gateways publish client messages
-	SubjectInbound = "chat.inbound"
-
-	// SubjectNotification is the subject consumed by notification worker
-	SubjectNotification = "chat.notification"
-
-	// SubjectGlobal is the broadcast channel for system-wide announcements
-	SubjectGlobal = "chat.global"
+require (
+	github.com/nats-io/nats.go v1.53.1
+	google.golang.org/grpc v1.83.2
+	google.golang.org/protobuf v1.36.12
 )
 
-// GatewayNodeSubject returns the dedicated subject for a specific WebSocket Gateway node
-func GatewayNodeSubject(nodeID string) string {
-	return fmt.Sprintf("chat.gateway.%s", nodeID)
+require (
+	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/nats-io/nkeys v0.4.15 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+)
+</file>
+
+<file path="pkg/grpcclient/gateway_client_manager.go">
+package grpcclient
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"strings"
+	"sync"
+	"time"
+
+	pb "chat-system/pkg/proto"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+// GatewayClientManager quản lý danh sách và tái sử dụng (cache) các kết nối gRPC tới từng WS Gateway node
+type GatewayClientManager struct {
+	defaultPort int
+	dnsSuffix   string
+	clients     map[string]pb.WSGatewayServiceClient
+	conns       map[string]*grpc.ClientConn
+	mu          sync.RWMutex
 }
 
-// ClanSubject returns the dedicated subject for a specific clan/guild channel
-func ClanSubject(clanID string) string {
-	return fmt.Sprintf("chat.clan.%s", clanID)
+// NewGatewayClientManager khởi tạo GatewayClientManager với cấu hình port mặc định và DNS suffix (cho K8s Headless Service)
+func NewGatewayClientManager(defaultPort int, dnsSuffix string) *GatewayClientManager {
+	if defaultPort <= 0 {
+		defaultPort = 50051
+	}
+	return &GatewayClientManager{
+		defaultPort: defaultPort,
+		dnsSuffix:   dnsSuffix,
+		clients:     make(map[string]pb.WSGatewayServiceClient),
+		conns:       make(map[string]*grpc.ClientConn),
+	}
 }
 
-// RegionSubject returns the dedicated subject for a specific geographic region
-func RegionSubject(regionID string) string {
-	return fmt.Sprintf("chat.region.%s", regionID)
+// ResolveAddress phân giải nodeID thành địa chỉ kết nối gRPC hợp lệ
+func (m *GatewayClientManager) ResolveAddress(nodeID string) string {
+	if strings.Contains(nodeID, ":") {
+		return nodeID
+	}
+	if m.dnsSuffix != "" {
+		return fmt.Sprintf("%s%s:%d", nodeID, m.dnsSuffix, m.defaultPort)
+	}
+	return fmt.Sprintf("%s:%d", nodeID, m.defaultPort)
+}
+
+// GetClient trả về gRPC client kết nối tới WS Gateway node tương ứng (sử dụng cache hoặc dial mới nếu chưa có)
+func (m *GatewayClientManager) GetClient(nodeID string) (pb.WSGatewayServiceClient, error) {
+	if nodeID == "" {
+		return nil, fmt.Errorf("nodeID cannot be empty")
+	}
+
+	m.mu.RLock()
+	client, exists := m.clients[nodeID]
+	m.mu.RUnlock()
+
+	if exists {
+		return client, nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double check sau khi acquire Write Lock
+	if client, exists := m.clients[nodeID]; exists {
+		return client, nil
+	}
+
+	addr := m.ResolveAddress(nodeID)
+	dialCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	conn, err := grpc.DialContext(
+		dialCtx,
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial WS Gateway gRPC at %s: %w", addr, err)
+	}
+
+	newClient := pb.NewWSGatewayServiceClient(conn)
+	m.conns[nodeID] = conn
+	m.clients[nodeID] = newClient
+
+	log.Printf("[GatewayClientManager] Established gRPC connection to WS Gateway node '%s' at %s", nodeID, addr)
+	return newClient, nil
+}
+
+// Close đóng tất cả các kết nối gRPC đang mở khi shutdown service
+func (m *GatewayClientManager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var firstErr error
+	for node, conn := range m.conns {
+		if err := conn.Close(); err != nil {
+			log.Printf("[GatewayClientManager] Error closing connection to %s: %v", node, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	m.conns = make(map[string]*grpc.ClientConn)
+	m.clients = make(map[string]pb.WSGatewayServiceClient)
+	return firstErr
 }
 </file>
 
@@ -1624,39 +1922,6 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-</file>
-
-<file path="services/api-service/Dockerfile">
-FROM node:22-alpine AS deps
-WORKDIR /usr/src/app
-
-COPY package*.json .
-RUN npm ci
-
-FROM node:22-alpine AS builder
-WORKDIR /usr/src/app
-
-COPY --from=deps /usr/src/app/node_modules ./node_modules
-COPY . .
-
-RUN npm run build
-
-ENV NODE_ENV production
-RUN npm prune --production
-
-FROM node:22-alpine AS runner
-WORKDIR /usr/src/app
-
-ENV NODE_ENV production
-
-USER node
-
-COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
-COPY --from=builder --chown=node:node /usr/src/app/dist ./dist
-COPY --from=builder --chown=node:node /usr/src/app/package*.json ./
-
-EXPOSE 3000
-CMD ["node", "dist/main.js"]
 </file>
 
 <file path="services/api-service/nest-cli.json">
@@ -4480,24 +4745,213 @@ describe('AppController (e2e)', () => {
 }
 </file>
 
-<file path="services/chat-engine/Dockerfile">
-# Build stage
-FROM golang:1.23-alpine AS builder
+<file path="services/chat-engine/internal/consumer/consumer.go">
+package consumer
 
-WORKDIR /app
-COPY go.mod ./
-RUN go mod download || true
+import (
+	"chat-worker/internal/usecase"
+	"context"
+	"log"
 
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /chat-worker ./cmd/main.go
+	"chat-system/pkg/contracts"
+	natsclient "chat-system/pkg/nats"
 
-# Run stage
-FROM alpine:latest
-WORKDIR /root/
-COPY --from=builder /chat-worker .
-COPY --from=builder /app/configs ./configs
+	"github.com/nats-io/nats.go"
+)
 
-CMD ["./chat-worker"]
+// Consumer wraps NATS Queue Subscriber to consume inbound events from broker
+type Consumer struct {
+	subscriber  *natsclient.Subscriber[contracts.InboundBrokerEvent]
+	chatUsecase usecase.ChatUsecase
+}
+
+// NewConsumer creates a new Inbound Consumer with queue group support for worker load balancing
+func NewConsumer(nc *nats.Conn, subject, queueGroup string, chatUsecase usecase.ChatUsecase) *Consumer {
+	return &Consumer{
+		subscriber:  natsclient.NewQueueSubscriber[contracts.InboundBrokerEvent](nc, subject, queueGroup),
+		chatUsecase: chatUsecase,
+	}
+}
+
+// Start begins consuming messages asynchronously
+func (c *Consumer) Start(ctx context.Context) error {
+	return c.subscriber.Start(ctx, c.handleMessage)
+}
+
+// handleMessage processes inbound broker events
+func (c *Consumer) handleMessage(ctx context.Context, event contracts.InboundBrokerEvent) error {
+	if err := c.chatUsecase.ProcessInboundMessage(ctx, event); err != nil {
+		log.Printf("[Consumer] Error processing event client_msg_id=%s: %v", event.ClientMsgID, err)
+		return err
+	}
+	return nil
+}
+
+// Stop gracefully closes and drains the NATS subscription
+func (c *Consumer) Stop() error {
+	return c.subscriber.Close()
+}
+</file>
+
+<file path="services/chat-engine/internal/dispatcher/dispatcher_grpc.go">
+package dispatcher
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"chat-system/pkg/contracts"
+	grpcclient "chat-system/pkg/grpcclient"
+	natsclient "chat-system/pkg/nats"
+	pb "chat-system/pkg/proto"
+	"chat-worker/internal/config"
+
+	"github.com/nats-io/nats.go"
+)
+
+type grpcEventDispatcher struct {
+	ackPublisher  *natsclient.Publisher[contracts.OutboundBrokerEvent]
+	clientManager *grpcclient.GatewayClientManager
+}
+
+// NewGRPCEventDispatcher khởi tạo Dispatcher sử dụng GatewayClientManager từ pkg/grpcclient
+func NewGRPCEventDispatcher(cfg *config.DeliveryConfig, nc *nats.Conn) EventDispatcher {
+	return &grpcEventDispatcher{
+		ackPublisher:  natsclient.NewPublisher[contracts.OutboundBrokerEvent](nc, ""),
+		clientManager: grpcclient.NewGatewayClientManager(cfg.GRPCPort, cfg.GRPCServiceSuffix),
+	}
+}
+
+// SendAckToSender gửi sự kiện ACK về Node Gateway của người gửi qua Broker (NATS Topic)
+func (d *grpcEventDispatcher) SendAckToSender(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error {
+	if gatewayNode == "" {
+		return fmt.Errorf("gatewayNode is empty, cannot route sender ack")
+	}
+
+	subject := contracts.GatewayNodeSubject(gatewayNode)
+	if err := d.ackPublisher.PublishToSubject(ctx, subject, event); err != nil {
+		return fmt.Errorf("failed to publish sender ack to subject '%s': %w", subject, err)
+	}
+
+	log.Printf("[Dispatcher:gRPC] Sender ACK published via Broker: msg_id=%s, client_msg_id=%s -> subject=%s",
+		event.MessageID, event.ClientMsgID, subject)
+	return nil
+}
+
+// DispatchToGateway gửi tin nhắn trực tiếp qua gRPC tới WS Gateway Pod mà người nhận kết nối
+func (d *grpcEventDispatcher) DispatchToGateway(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error {
+	if gatewayNode == "" {
+		return fmt.Errorf("gatewayNode is empty, cannot route message to gateway via gRPC")
+	}
+
+	client, err := d.clientManager.GetClient(gatewayNode)
+	if err != nil {
+		return fmt.Errorf("failed to get gRPC client for node %s: %w", gatewayNode, err)
+	}
+
+	req := &pb.PushMessageRequest{
+		MessageId:      event.MessageID,
+		ClientMsgId:    event.ClientMsgID,
+		ConversationId: event.ConversationID,
+		SenderId:       event.SenderID,
+		ReceiverId:     event.ReceiverID,
+		Content:        event.Content,
+		Type:           string(event.Type),
+		Timestamp:      event.Timestamp,
+		Payload:        event.Payload,
+	}
+
+	resp, err := client.PushMessageToUser(ctx, req)
+	if err != nil {
+		return fmt.Errorf("gRPC PushMessageToUser failed for receiver %s: %w", event.ReceiverID, err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("gRPC PushMessageToUser rejected: %s", resp.ErrorMessage)
+	}
+
+	log.Printf("[Dispatcher:gRPC] Message dispatched successfully: msg_id=%s, receiver=%s -> gateway=%s",
+		event.MessageID, event.ReceiverID, gatewayNode)
+	return nil
+}
+
+func (d *grpcEventDispatcher) Close() error {
+	return d.clientManager.Close()
+}
+</file>
+
+<file path="services/chat-engine/internal/dispatcher/dispatcher_nats.go">
+package dispatcher
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"chat-system/pkg/contracts"
+	natsclient "chat-system/pkg/nats"
+
+	"github.com/nats-io/nats.go"
+)
+
+type natsEventDispatcher struct {
+	outboundPublisher *natsclient.Publisher[contracts.OutboundBrokerEvent]
+}
+
+// NewNATSEventDispatcher khởi tạo Dispatcher sử dụng NATS Pub/Sub
+func NewNATSEventDispatcher(nc *nats.Conn) EventDispatcher {
+	return &natsEventDispatcher{
+		outboundPublisher: natsclient.NewPublisher[contracts.OutboundBrokerEvent](nc, ""),
+	}
+}
+
+// SendAckToSender gửi sự kiện ACK về đúng Topic của Node Gateway mà người gửi kết nối: "chat.gateway.{node_id}"
+func (d *natsEventDispatcher) SendAckToSender(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error {
+	if gatewayNode == "" {
+		return fmt.Errorf("gatewayNode is empty, cannot route sender ack")
+	}
+	subject := contracts.GatewayNodeSubject(gatewayNode)
+	if err := d.outboundPublisher.PublishToSubject(ctx, subject, event); err != nil {
+		return fmt.Errorf("failed to publish sender ack to subject '%s': %w", subject, err)
+	}
+	log.Printf("[Dispatcher:NATS] Sender ACK published: msg_id=%s, client_msg_id=%s -> subject=%s",
+		event.MessageID, event.ClientMsgID, subject)
+	return nil
+}
+
+// DispatchToGateway chuyển tiếp tin nhắn tới đúng Topic của Node Gateway mà người nhận kết nối
+func (d *natsEventDispatcher) DispatchToGateway(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error {
+	if gatewayNode == "" {
+		return fmt.Errorf("gatewayNode is empty, cannot route message to gateway")
+	}
+	subject := contracts.GatewayNodeSubject(gatewayNode)
+	if err := d.outboundPublisher.PublishToSubject(ctx, subject, event); err != nil {
+		return fmt.Errorf("failed to publish outbound message to subject '%s': %w", subject, err)
+	}
+	log.Printf("[Dispatcher:NATS] Message dispatched to receiver gateway: msg_id=%s, receiver=%s -> subject=%s",
+		event.MessageID, event.ReceiverID, subject)
+	return nil
+}
+
+func (d *natsEventDispatcher) Close() error {
+	return nil
+}
+</file>
+
+<file path="services/chat-engine/internal/domain/message.go">
+package domain
+
+import "time"
+
+// Message represents the core message entity persisted in Cassandra
+type Message struct {
+	ConversationID string    `json:"conversation_id"`
+	ID             string    `json:"id"`
+	SenderID       string    `json:"sender_id"`
+	Content        string    `json:"content"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
 </file>
 
 <file path="services/chat-engine/internal/migrator/migrator.go">
@@ -4619,81 +5073,188 @@ func parseHosts(rawHosts []string) ([]string, int) {
 }
 </file>
 
-<file path="services/chat-engine/internal/repository/idempotency_repo.go">
+<file path="services/chat-engine/internal/presence/presence.go">
+package presence
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/redis/go-redis/v9"
+)
+
+type PresenceReader interface {
+	GetUserRoutes(ctx context.Context, userID string) (map[string]string, error)
+	IsUserOnline(ctx context.Context, userID string) (bool, error)
+}
+
+type redisPresenceReader struct {
+	client *redis.Client
+}
+
+func NewPresenceReader(client *redis.Client) PresenceReader {
+	return &redisPresenceReader{
+		client: client,
+	}
+}
+
+func presenceKey(userID string) string {
+	return fmt.Sprintf("presence:%s", userID)
+}
+
+// GetUserRoutes retrieves all active device -> gatewayNode mappings for a user.
+// Returns an empty map if user is offline or has no active devices.
+func (r *redisPresenceReader) GetUserRoutes(ctx context.Context, userID string) (map[string]string, error) {
+	return r.client.HGetAll(ctx, presenceKey(userID)).Result()
+}
+
+// IsUserOnline returns true if user has at least one active device online in Redis.
+func (r *redisPresenceReader) IsUserOnline(ctx context.Context, userID string) (bool, error) {
+	count, err := r.client.HLen(ctx, presenceKey(userID)).Result()
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+</file>
+
+<file path="services/chat-engine/internal/repository/message_repo.go">
 package repository
 
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"chat-worker/internal/config"
+	"chat-worker/internal/domain"
+
+	"github.com/gocql/gocql"
 )
 
-// IdempotencyRepository quản lý khóa chống trùng lặp trên Redis
-type IdempotencyRepository interface {
-	// AcquireLock cố gắng chiếm khóa idempotency cho clientMsgID.
-	// Trả về (true, nil) nếu đây là tin nhắn mới chưa từng xuất hiện.
-	// Trả về (false, nil) nếu tin nhắn này đã tồn tại trong Redis.
-	AcquireLock(ctx context.Context, clientMsgID string) (bool, error)
-
-	// ReleaseLock xóa khóa trên Redis khi quá trình xử lý gặp lỗi (như lỗi DB),
-	// cho phép client có thể retry lại sau đó.
-	ReleaseLock(ctx context.Context, clientMsgID string) error
+// MessageRepository defines the data access contract for messages
+type MessageRepository interface {
+	SaveMessage(ctx context.Context, msg *domain.Message) error
+	GetMessagesByConversation(ctx context.Context, conversationID string, limit int) ([]*domain.Message, error)
 }
 
-type redisIdempotencyRepository struct {
-	client *redis.Client
-	ttl    time.Duration
+// CassandraMessageRepository implements MessageRepository using Apache Cassandra
+type CassandraMessageRepository struct {
+	session *gocql.Session
+	table   string
 }
 
-// NewRedisIdempotencyRepository khởi tạo repository với Redis client và thời gian sống TTL
-func NewRedisIdempotencyRepository(client *redis.Client, ttl time.Duration) IdempotencyRepository {
-	if ttl <= 0 {
-		ttl = 24 * time.Hour // Mặc định giữ 24h
-	}
-	return &redisIdempotencyRepository{
-		client: client,
-		ttl:    ttl,
-	}
-}
-
-func (r *redisIdempotencyRepository) AcquireLock(ctx context.Context, clientMsgID string) (bool, error) {
-	if clientMsgID == "" {
-		return false, fmt.Errorf("clientMsgID cannot be empty")
+// NewCassandraSession creates and initializes a Cassandra session based on configuration
+func NewCassandraSession(cfg *config.DatabaseConfig) (*gocql.Session, error) {
+	if len(cfg.Hosts) == 0 {
+		return nil, fmt.Errorf("cassandra hosts list is empty")
 	}
 
-	key := fmt.Sprintf("idempotency:msg:%s", clientMsgID)
+	var hostList []string
+	port := 9042
 
-	// Lệnh SET key value NX EX ttl là thao tác nguyên tử (Atomic) trong Redis
-	acquired, err := r.client.SetNX(ctx, key, "PROCESSED", r.ttl).Result()
+	for _, h := range cfg.Hosts {
+		if strings.Contains(h, ":") {
+			host, portStr, err := net.SplitHostPort(h)
+			if err == nil {
+				hostList = append(hostList, host)
+				if parsedPort, err := strconv.Atoi(portStr); err == nil && parsedPort > 0 {
+					port = parsedPort
+				}
+				continue
+			}
+		}
+		hostList = append(hostList, h)
+	}
+
+	cluster := gocql.NewCluster(hostList...)
+	cluster.Port = port
+	cluster.Keyspace = cfg.Keyspace
+	cluster.Consistency = gocql.LocalQuorum
+	cluster.Timeout = 5 * time.Second
+	cluster.ConnectTimeout = 10 * time.Second
+	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
+
+	session, err := cluster.CreateSession()
 	if err != nil {
-		return false, fmt.Errorf("redis setnx failed for key %s: %w", key, err)
+		return nil, fmt.Errorf("failed to connect to cassandra cluster: %w", err)
 	}
 
-	return acquired, nil
+	return session, nil
 }
 
-func (r *redisIdempotencyRepository) ReleaseLock(ctx context.Context, clientMsgID string) error {
-	if clientMsgID == "" {
-		return nil
+// NewCassandraMessageRepository creates a new instance of CassandraMessageRepository
+func NewCassandraMessageRepository(session *gocql.Session, table string) *CassandraMessageRepository {
+	return &CassandraMessageRepository{
+		session: session,
+		table:   table,
+	}
+}
+
+// SaveMessage inserts a new message into Cassandra
+func (r *CassandraMessageRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
+	query := fmt.Sprintf(`
+		INSERT INTO %s (conversation_id, id, sender_id, content, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, r.table)
+
+	return r.session.Query(query,
+		msg.ConversationID,
+		msg.ID,
+		msg.SenderID,
+		msg.Content,
+		msg.CreatedAt,
+		msg.UpdatedAt,
+	).WithContext(ctx).Exec()
+}
+
+// GetMessagesByConversation retrieves recent messages for a conversation
+func (r *CassandraMessageRepository) GetMessagesByConversation(ctx context.Context, conversationID string, limit int) ([]*domain.Message, error) {
+	if limit <= 0 {
+		return nil, nil
 	}
 
-	key := fmt.Sprintf("idempotency:msg:%s", clientMsgID)
-	if err := r.client.Del(ctx, key).Err(); err != nil {
-		return fmt.Errorf("redis del failed for key %s: %w", key, err)
+	query := fmt.Sprintf(`
+		SELECT conversation_id, id, sender_id, content, created_at, updated_at
+		FROM %s
+		WHERE conversation_id = ?
+		LIMIT ?
+	`, r.table)
+
+	iter := r.session.Query(query, conversationID, limit).WithContext(ctx).Iter()
+	defer iter.Close()
+
+	var messages []*domain.Message
+	var convID, id, senderID, content string
+	var createdAt, updatedAt time.Time
+
+	for iter.Scan(&convID, &id, &senderID, &content, &createdAt, &updatedAt) {
+		messages = append(messages, &domain.Message{
+			ConversationID: convID,
+			ID:             id,
+			SenderID:       senderID,
+			Content:        content,
+			CreatedAt:      createdAt,
+			UpdatedAt:      updatedAt,
+		})
 	}
 
-	return nil
+	if err := iter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to query messages: %w", err)
+	}
+
+	return messages, nil
 }
 </file>
 
-<file path="services/chat-engine/migrations/000001_init_schema.down.cql">
-DROP TABLE IF EXISTS conversation_read_receipts;
+<file path="services/chat-engine/migrations/000001_create_messages_table.down.cql">
 DROP TABLE IF EXISTS messages;
 </file>
 
-<file path="services/chat-engine/migrations/000001_init_schema.up.cql">
+<file path="services/chat-engine/migrations/000001_create_messages_table.up.cql">
 CREATE TABLE IF NOT EXISTS messages (
     conversation_id text,
     id text,
@@ -4703,7 +5264,13 @@ CREATE TABLE IF NOT EXISTS messages (
     updated_at timestamp,
     PRIMARY KEY ((conversation_id), id)
 ) WITH CLUSTERING ORDER BY (id ASC);
+</file>
 
+<file path="services/chat-engine/migrations/000002_create_read_receipts_table.down.cql">
+DROP TABLE IF EXISTS conversation_read_receipts;
+</file>
+
+<file path="services/chat-engine/migrations/000002_create_read_receipts_table.up.cql">
 CREATE TABLE IF NOT EXISTS conversation_read_receipts (
     conversation_id text,
     user_id text,
@@ -4720,6 +5287,766 @@ import "embed"
 
 //go:embed *.cql
 var FS embed.FS
+</file>
+
+<file path="services/client-simulator/go.mod">
+module client-simulator
+
+go 1.25.0
+
+require (
+	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
+)
+</file>
+
+<file path="services/client-simulator/internal/auth/client.go">
+package auth
+
+import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type BotSession struct {
+	UserID      string
+	Username    string
+	AccessToken string
+}
+
+type AuthClient struct {
+	baseURL    string
+	httpClient *http.Client
+}
+
+func NewAuthClient(baseURL string) *AuthClient {
+	return &AuthClient{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+}
+
+type registerPayload struct {
+	UserName string `json:"userName"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+}
+
+type loginPayload struct {
+	UserName string `json:"userName"`
+	Password string `json:"password"`
+}
+
+type apiResponse struct {
+	StatusCode int             `json:"statusCode"`
+	Message    string          `json:"message"`
+	Data       json.RawMessage `json:"data"`
+}
+
+type loginResponseData struct {
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+}
+
+func (c *AuthClient) EnsureBotAuth(username, password string) (*BotSession, error) {
+	// 1. Thử login trước
+	session, err := c.login(username, password)
+	if err == nil {
+		return session, nil
+	}
+
+	// 2. Nếu login thất bại, thử register
+	_ = c.register(username, password)
+
+	// 3. Login lại sau khi register
+	return c.login(username, password)
+}
+
+func (c *AuthClient) register(username, password string) error {
+	body, _ := json.Marshal(registerPayload{
+		UserName: username,
+		Password: password,
+		Name:     fmt.Sprintf("Bot %s", username),
+	})
+
+	resp, err := c.httpClient.Post(fmt.Sprintf("%s/auth/register", c.baseURL), "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("register failed with status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+func (c *AuthClient) login(username, password string) (*BotSession, error) {
+	body, _ := json.Marshal(loginPayload{
+		UserName: username,
+		Password: password,
+	})
+
+	resp, err := c.httpClient.Post(fmt.Sprintf("%s/auth/login", c.baseURL), "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("login failed status %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	var rawResp apiResponse
+	var token string
+	if err := json.Unmarshal(respBytes, &rawResp); err == nil && len(rawResp.Data) > 0 {
+		var tokenData loginResponseData
+		if err := json.Unmarshal(rawResp.Data, &tokenData); err == nil && tokenData.AccessToken != "" {
+			token = tokenData.AccessToken
+		}
+	}
+
+	if token == "" {
+		// Fallback parse directly
+		var tokenData loginResponseData
+		if err := json.Unmarshal(respBytes, &tokenData); err == nil && tokenData.AccessToken != "" {
+			token = tokenData.AccessToken
+		}
+	}
+
+	if token == "" {
+		return nil, fmt.Errorf("could not extract accessToken from response: %s", string(respBytes))
+	}
+
+	userID, err := extractUserIDFromJWT(token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract sub/user_id from jwt: %w", err)
+	}
+
+	return &BotSession{
+		UserID:      userID,
+		Username:    username,
+		AccessToken: token,
+	}, nil
+}
+
+func extractUserIDFromJWT(token string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid jwt format")
+	}
+
+	payloadPart := parts[1]
+	// Handle Base64 URL padding
+	if l := len(payloadPart) % 4; l > 0 {
+		payloadPart += strings.Repeat("=", 4-l)
+	}
+
+	payloadBytes, err := base64.URLEncoding.DecodeString(payloadPart)
+	if err != nil {
+		return "", err
+	}
+
+	var claims map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return "", err
+	}
+
+	if sub, ok := claims["sub"].(string); ok && sub != "" {
+		return sub, nil
+	}
+	if uid, ok := claims["user_id"].(string); ok && uid != "" {
+		return uid, nil
+	}
+
+	return "", fmt.Errorf("no sub or user_id found in jwt claims")
+}
+</file>
+
+<file path="services/client-simulator/internal/bot/bot.go">
+package bot
+
+import (
+	"client-simulator/internal/auth"
+	"client-simulator/internal/conversation"
+	"client-simulator/internal/metrics"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"math/rand"
+	"net/url"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+)
+
+type Bot struct {
+	Session       *auth.BotSession
+	DeviceID      string
+	WSURL         string
+	Conversations []conversation.Target
+	Tracker       *metrics.Tracker
+
+	conn     *websocket.Conn
+	inFlight sync.Map // clientMsgID -> time.Time
+	sendChan chan []byte
+	stopChan chan struct{}
+	closeOnce sync.Once
+}
+
+type wsEnvelope struct {
+	Type        string          `json:"type"`
+	ClientMsgID string          `json:"client_msg_id,omitempty"`
+	Timestamp   int64           `json:"timestamp,omitempty"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
+}
+
+type sendMessagePayload struct {
+	ConversationID string `json:"conversation_id"`
+	ReceiverID     string `json:"receiver_id"`
+	Content        string `json:"content"`
+}
+
+func NewBot(session *auth.BotSession, wsURL string, targets []conversation.Target, tracker *metrics.Tracker) *Bot {
+	return &Bot{
+		Session:       session,
+		DeviceID:      fmt.Sprintf("dev_%s", session.Username),
+		WSURL:         wsURL,
+		Conversations: targets,
+		Tracker:       tracker,
+		sendChan:      make(chan []byte, 1024),
+		stopChan:      make(chan struct{}),
+	}
+}
+
+// Connect thiết lập kết nối WebSocket tới WS Gateway
+func (b *Bot) Connect(ctx context.Context) error {
+	u, err := url.Parse(b.WSURL)
+	if err != nil {
+		return fmt.Errorf("invalid ws url: %w", err)
+	}
+
+	q := u.Query()
+	q.Set("token", b.Session.AccessToken)
+	q.Set("device_id", b.DeviceID)
+	u.RawQuery = q.Encode()
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 5 * time.Second,
+	}
+
+	conn, _, err := dialer.DialContext(ctx, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("bot %s dial error: %w", b.Session.Username, err)
+	}
+
+	b.conn = conn
+	return nil
+}
+
+// Start bắt đầu các pump: read, write, heartbeat, và traffic generator
+func (b *Bot) Start(ctx context.Context, sendInterval time.Duration) {
+	go b.readPump()
+	go b.writePump()
+	go b.heartbeatPump(ctx)
+	go b.trafficPump(ctx, sendInterval)
+}
+
+func (b *Bot) Stop() {
+	b.closeOnce.Do(func() {
+		close(b.stopChan)
+		if b.conn != nil {
+			_ = b.conn.Close()
+		}
+	})
+}
+
+func (b *Bot) readPump() {
+	defer b.Stop()
+
+	type innerPayload struct {
+		MessageID   string `json:"message_id"`
+		ClientMsgID string `json:"client_msg_id"`
+		SenderID    string `json:"sender_id"`
+		ReceiverID  string `json:"receiver_id"`
+		Type        string `json:"type"`
+	}
+
+	for {
+		_, data, err := b.conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		var env wsEnvelope
+		if err := json.Unmarshal(data, &env); err != nil {
+			continue
+		}
+
+		var inner innerPayload
+		if len(env.Payload) > 0 {
+			_ = json.Unmarshal(env.Payload, &inner)
+		}
+
+		msgID := env.ClientMsgID
+		if msgID == "" {
+			msgID = inner.ClientMsgID
+		}
+
+		// 1. Kiểm tra xem có phải Sender ACK của tin nhắn do chính Bot này gửi đi không
+		if msgID != "" {
+			if val, ok := b.inFlight.LoadAndDelete(msgID); ok {
+				sentAt := val.(time.Time)
+				latency := time.Since(sentAt)
+				b.Tracker.RecordAck(latency)
+				continue
+			}
+		}
+
+		// 2. Nếu không phải tin nhắn do bot này gửi -> Tin nhắn nhận được từ bạn chat
+		if inner.SenderID != "" && inner.SenderID != b.Session.UserID {
+			b.Tracker.RecordDelivered()
+		} else if env.Type == "SEND_MESSAGE" && msgID == "" {
+			b.Tracker.RecordDelivered()
+		}
+	}
+}
+
+func (b *Bot) writePump() {
+	ticker := time.NewTicker(20 * time.Second)
+	defer func() {
+		ticker.Stop()
+		b.Stop()
+	}()
+
+	for {
+		select {
+		case <-b.stopChan:
+			return
+		case msg, ok := <-b.sendChan:
+			if !ok {
+				return
+			}
+			if err := b.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				b.Tracker.RecordError()
+				return
+			}
+		case <-ticker.C:
+			// Ping định kỳ
+			if err := b.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (b *Bot) heartbeatPump(ctx context.Context) {
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-b.stopChan:
+			return
+		case <-ticker.C:
+			hbEnv := wsEnvelope{
+				Type:      "HEARTBEAT",
+				Timestamp: time.Now().UnixMilli(),
+			}
+			bytes, _ := json.Marshal(hbEnv)
+			select {
+			case b.sendChan <- bytes:
+			default:
+			}
+		}
+	}
+}
+
+func (b *Bot) trafficPump(ctx context.Context, interval time.Duration) {
+	if len(b.Conversations) == 0 || interval <= 0 {
+		return
+	}
+
+	// Thêm chút jitter ngẫu nhiên để các bot không bắn cùng mili-giây
+	jitter := time.Duration(rand.Intn(500)) * time.Millisecond
+	time.Sleep(jitter)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-b.stopChan:
+			return
+		case <-ticker.C:
+			// Chọn ngẫu nhiên 1 trong các target conversation
+			target := b.Conversations[rand.Intn(len(b.Conversations))]
+
+			// Tạo UUIDv7 làm client_msg_id (Time-ordered UUID)
+			clientMsgID, err := uuid.NewV7()
+			var msgIDStr string
+			if err == nil {
+				msgIDStr = clientMsgID.String()
+			} else {
+				msgIDStr = uuid.NewString()
+			}
+
+			payloadBytes, _ := json.Marshal(sendMessagePayload{
+				ConversationID: target.ConversationID,
+				ReceiverID:     target.PartnerID,
+				Content:        fmt.Sprintf("Hello from %s to %s at %s", b.Session.Username, target.PartnerID, time.Now().Format("15:04:05.000")),
+			})
+
+			env := wsEnvelope{
+				Type:        "SEND_MESSAGE",
+				ClientMsgID: msgIDStr,
+				Timestamp:   time.Now().UnixMilli(),
+				Payload:     payloadBytes,
+			}
+
+			envBytes, err := json.Marshal(env)
+			if err != nil {
+				log.Printf("[Bot] Marshal error: %v", err)
+				continue
+			}
+
+			// Ghi nhận thời điểm gửi để đo Latency
+			b.inFlight.Store(msgIDStr, time.Now())
+			b.Tracker.RecordSent()
+
+			select {
+			case b.sendChan <- envBytes:
+			default:
+				b.Tracker.RecordError()
+			}
+		}
+	}
+}
+</file>
+
+<file path="services/client-simulator/internal/conversation/manager.go">
+package conversation
+
+import (
+	"bytes"
+	"client-simulator/internal/auth"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type Target struct {
+	ConversationID string
+	PartnerID      string
+}
+
+type ConversationResponse struct {
+	ID      string `json:"id"`
+	Members []struct {
+		UserID string `json:"userId"`
+	} `json:"members"`
+}
+
+type apiResponse struct {
+	StatusCode int             `json:"statusCode"`
+	Message    string          `json:"message"`
+	Data       json.RawMessage `json:"data"`
+}
+
+type Manager struct {
+	baseURL    string
+	httpClient *http.Client
+}
+
+func NewManager(baseURL string) *Manager {
+	return &Manager{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+}
+
+// EnsureDirectConversations đảm bảo mỗi bot có đủ số lượng direct conversation với các bot khác
+func (m *Manager) EnsureDirectConversations(bots []*auth.BotSession, desiredConvsPerBot int) map[string][]Target {
+	botTargets := make(map[string][]Target)
+	totalBots := len(bots)
+
+	if desiredConvsPerBot >= totalBots {
+		desiredConvsPerBot = totalBots - 1
+	}
+	if desiredConvsPerBot <= 0 {
+		desiredConvsPerBot = 1
+	}
+
+	log.Printf("[Conversation] Setting up conversation graph: %d bots, target ~%d convs/bot...",
+		totalBots, desiredConvsPerBot)
+
+	for i, currentBot := range bots {
+		existingMap := make(map[string]string) // partnerID -> convoID
+
+		// 1. Lấy danh sách conversation hiện có của bot
+		existingConvos, err := m.fetchUserConversations(currentBot.AccessToken)
+		if err == nil {
+			for _, convo := range existingConvos {
+				for _, member := range convo.Members {
+					if member.UserID != currentBot.UserID && member.UserID != "" {
+						existingMap[member.UserID] = convo.ID
+					}
+				}
+			}
+		}
+
+		// 2. Nếu chưa đủ desiredConvsPerBot, tạo thêm với các bot khác
+		for step := 1; step <= desiredConvsPerBot; step++ {
+			partnerIdx := (i + step) % totalBots
+			if partnerIdx == i {
+				continue
+			}
+			partnerBot := bots[partnerIdx]
+
+			if _, exists := existingMap[partnerBot.UserID]; exists {
+				continue
+			}
+
+			// Gọi POST /conversations/direct để tạo
+			convoID, err := m.createDirectConversation(currentBot.AccessToken, partnerBot.UserID)
+			if err == nil && convoID != "" {
+				existingMap[partnerBot.UserID] = convoID
+			}
+		}
+
+		// Gom danh sách target cho bot hiện tại
+		targets := make([]Target, 0, len(existingMap))
+		for partnerID, convoID := range existingMap {
+			targets = append(targets, Target{
+				ConversationID: convoID,
+				PartnerID:      partnerID,
+			})
+		}
+		botTargets[currentBot.UserID] = targets
+	}
+
+	log.Printf("[Conversation] Conversation graph established successfully.")
+	return botTargets
+}
+
+func (m *Manager) fetchUserConversations(token string) ([]ConversationResponse, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/conversations", m.baseURL), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var convos []ConversationResponse
+	var rawResp apiResponse
+	if err := json.Unmarshal(respBytes, &rawResp); err == nil && len(rawResp.Data) > 0 {
+		_ = json.Unmarshal(rawResp.Data, &convos)
+	}
+
+	if len(convos) == 0 {
+		_ = json.Unmarshal(respBytes, &convos)
+	}
+
+	return convos, nil
+}
+
+func (m *Manager) createDirectConversation(token, partnerID string) (string, error) {
+	body, _ := json.Marshal(map[string]string{
+		"partnerId": partnerID,
+	})
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/conversations/direct", m.baseURL), bytes.NewBuffer(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var created ConversationResponse
+	var rawResp apiResponse
+	if err := json.Unmarshal(respBytes, &rawResp); err == nil && len(rawResp.Data) > 0 {
+		_ = json.Unmarshal(rawResp.Data, &created)
+	}
+
+	if created.ID == "" {
+		_ = json.Unmarshal(respBytes, &created)
+	}
+
+	return created.ID, nil
+}
+</file>
+
+<file path="services/client-simulator/internal/metrics/tracker.go">
+package metrics
+
+import (
+	"fmt"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+// Tracker quản lý số liệu đo lường hiệu năng và độ trễ (Latency)
+type Tracker struct {
+	totalSent         atomic.Int64
+	totalAck          atomic.Int64
+	totalDelivered    atomic.Int64
+	totalErrors       atomic.Int64
+	totalLatencyNanos atomic.Int64
+
+	// Sample buffer để tính Percentiles (p50, p90, p95, p99)
+	samplesMu sync.Mutex
+	samples   []float64 // Lưu latency bằng millisecond
+}
+
+func NewTracker() *Tracker {
+	return &Tracker{
+		samples: make([]float64, 0, 10000),
+	}
+}
+
+func (t *Tracker) RecordSent() {
+	t.totalSent.Add(1)
+}
+
+func (t *Tracker) RecordAck(d time.Duration) {
+	t.totalAck.Add(1)
+	nanos := d.Nanoseconds()
+	t.totalLatencyNanos.Add(nanos)
+
+	ms := float64(nanos) / 1e6
+	t.samplesMu.Lock()
+	if len(t.samples) < 50000 {
+		t.samples = append(t.samples, ms)
+	} else {
+		// Ring-buffer giữ tối đa 50.000 samples gần nhất
+		t.samples = t.samples[len(t.samples)-25000:]
+		t.samples = append(t.samples, ms)
+	}
+	t.samplesMu.Unlock()
+}
+
+func (t *Tracker) RecordDelivered() {
+	t.totalDelivered.Add(1)
+}
+
+func (t *Tracker) RecordError() {
+	t.totalErrors.Add(1)
+}
+
+func (t *Tracker) GetStats() (sent, ack, delivered, errs int64, avgMs float64, p50, p90, p95, p99, maxMs float64) {
+	sent = t.totalSent.Load()
+	ack = t.totalAck.Load()
+	delivered = t.totalDelivered.Load()
+	errs = t.totalErrors.Load()
+
+	if ack > 0 {
+		avgMs = float64(t.totalLatencyNanos.Load()) / float64(ack) / 1e6
+	}
+
+	t.samplesMu.Lock()
+	n := len(t.samples)
+	if n > 0 {
+		sorted := make([]float64, n)
+		copy(sorted, t.samples)
+		t.samplesMu.Unlock()
+
+		sort.Float64s(sorted)
+		p50 = sorted[int(float64(n)*0.50)]
+		p90 = sorted[int(float64(n)*0.90)]
+		p95 = sorted[int(float64(n)*0.95)]
+		p99 = sorted[int(float64(n)*0.99)]
+		maxMs = sorted[n-1]
+	} else {
+		t.samplesMu.Unlock()
+	}
+
+	return
+}
+
+func (t *Tracker) PrintDashboard(activeBots, totalBots int, uptime time.Duration) {
+	sent, ack, delivered, errs, avgMs, p50, p90, p95, p99, maxMs := t.GetStats()
+
+	secs := uptime.Seconds()
+	var sendTps, ackTps float64
+	if secs > 0 {
+		sendTps = float64(sent) / secs
+		ackTps = float64(ack) / secs
+	}
+
+	var ackRate float64
+	if sent > 0 {
+		ackRate = float64(ack) / float64(sent) * 100
+	}
+
+	fmt.Printf("\033[H\033[2J") // Clear console screen
+	fmt.Println("========================= CHAT STRESS TEST DASHBOARD =========================")
+	fmt.Printf("Active Bots:      %d / %d Online (WS Connected)\n", activeBots, totalBots)
+	fmt.Printf("Elapsed Time:     %s\n", uptime.Round(time.Second))
+	fmt.Println("------------------------------------------------------------------------------")
+	fmt.Printf("Messages Sent:    %-8d | Send Rate:       %.1f msgs/sec\n", sent, sendTps)
+	fmt.Printf("ACKs Received:    %-8d | ACK Rate:        %.1f%% (%.1f acks/sec)\n", ack, ackRate, ackTps)
+	fmt.Printf("Msg Delivered:    %-8d | Errors/Drops:    %d\n", delivered, errs)
+	fmt.Println("------------------------------------------------------------------------------")
+	fmt.Println("Round-Trip Latency (Sender ACK):")
+	fmt.Printf("  - Average:      %6.2f ms\n", avgMs)
+	fmt.Printf("  - p50 (Median): %6.2f ms\n", p50)
+	fmt.Printf("  - p90:          %6.2f ms\n", p90)
+	fmt.Printf("  - p95:          %6.2f ms\n", p95)
+	fmt.Printf("  - p99:          %6.2f ms\n", p99)
+	fmt.Printf("  - Max:          %6.2f ms\n", maxMs)
+	fmt.Println("==============================================================================")
+	fmt.Println("Nhấn Ctrl+C để dừng kiểm thử.")
+}
 </file>
 
 <file path="services/notification-service/cmd/main.go">
@@ -4801,26 +6128,6 @@ apns:
   team_id: "TEAM_ID"
   topic: "com.chat.app"
   production: false
-</file>
-
-<file path="services/notification-service/Dockerfile">
-# Build stage
-FROM golang:1.23-alpine AS builder
-
-WORKDIR /app
-COPY go.mod ./
-RUN go mod download || true
-
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /notification-service ./cmd/main.go
-
-# Run stage
-FROM alpine:latest
-WORKDIR /root/
-COPY --from=builder /notification-service .
-COPY --from=builder /app/configs ./configs
-
-CMD ["./notification-service"]
 </file>
 
 <file path="services/notification-service/go.mod">
@@ -5016,174 +6323,84 @@ func (u *NotificationUsecase) HandleNotification(ctx context.Context, event *dom
 }
 </file>
 
-<file path="services/ws-gateway/Dockerfile">
-# Build stage
-FROM golang:1.23-alpine AS builder
-
-WORKDIR /app
-COPY go.mod ./
-RUN go mod download || true
-
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /ws-gateway ./cmd/main.go
-
-# Run stage
-FROM alpine:latest
-WORKDIR /root/
-COPY --from=builder /ws-gateway .
-COPY --from=builder /app/configs ./configs
-
-EXPOSE 8080
-CMD ["./ws-gateway"]
-</file>
-
-<file path="services/ws-gateway/internal/delivery/nats_delivery.go">
+<file path="services/ws-gateway/internal/delivery/listener.go">
 package delivery
 
-import (
-	"context"
-	"fmt"
-	"log"
+import "context"
 
-	"chat-system/pkg/contracts"
-	natsclient "chat-system/pkg/nats"
-	"ws-gateway/internal/connection"
-	"ws-gateway/internal/domain"
-
-	"github.com/nats-io/nats.go"
-)
-
-type NATSListener struct {
-	nodeID     string
-	subscriber *natsclient.Subscriber[contracts.OutboundBrokerEvent]
-	hub        *connection.Hub
-}
-
-func NewNATSListener(nc *nats.Conn, nodeID string, hub *connection.Hub) *NATSListener {
-	subject := contracts.GatewayNodeSubject(nodeID)
-	return &NATSListener{
-		nodeID:     nodeID,
-		subscriber: natsclient.NewSubscriber[contracts.OutboundBrokerEvent](nc, subject),
-		hub:        hub,
-	}
-}
-
-func (n *NATSListener) Start(ctx context.Context) error {
-	err := n.subscriber.Start(ctx, func(ctx context.Context, event contracts.OutboundBrokerEvent) error {
-		payload := domain.MessageDeliveryPayload{
-			MessageID:      event.MessageID,
-			ClientMsgID:    event.ClientMsgID,
-			ConversationID: event.ConversationID,
-			SenderID:       event.SenderID,
-			ReceiverID:     event.ReceiverID,
-			Content:        event.Content,
-			Type:           event.Type,
-			Timestamp:      event.Timestamp,
-		}
-
-		wsMsg, err := payload.NewWSMessageFromDelivery()
-		if err != nil {
-			return err
-		}
-
-		n.hub.SendToUser(event.ReceiverID, wsMsg)
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to start NATS listener: %w", err)
-	}
-
-	log.Printf("[Delivery] Subscribed to NATS Subject: %s", contracts.GatewayNodeSubject(n.nodeID))
-	return nil
-}
-
-func (n *NATSListener) Stop(ctx context.Context) error {
-	log.Println("[Delivery] NATS listener stopped")
-	return nil
+type DeliveryListener interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
 }
 </file>
 
-<file path="services/ws-gateway/internal/handler/ws_handler.go">
-package handler
+<file path="services/ws-gateway/internal/payload/ws_payload.go">
+package payload
 
 import (
-	"errors"
-	"net/http"
+	"encoding/json"
 
-	"ws-gateway/internal/connection"
-	"ws-gateway/internal/domain"
-
-	"github.com/golang-jwt/jwt"
-	"github.com/gorilla/websocket"
+	"chat-system/pkg/contracts"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+// WSEventType represents the type of WebSocket event
+type WSEventType string
+
+const (
+	WSEventSendMessage  WSEventType = "SEND_MESSAGE"
+	WSEventFailedToSend WSEventType = "FAILED_TO_SEND"
+	WSEventHeartbeat    WSEventType = "HEARTBEAT"
+)
+
+func (t WSEventType) ToBrokerMessageType() (contracts.BrokerMessageType, bool) {
+	switch t {
+	case WSEventSendMessage:
+		return contracts.BrokerEventMessageSubmitted, true
+	default:
+		return "", false
+	}
 }
 
-func validateToken(tokenStr string, secret string) (string, error) {
-	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-		return []byte(secret), nil
-	})
-
-	if err != nil || !token.Valid {
-		return "", errors.New("invalid token")
-	}
-
-	if claims, ok := token.Claims.(jwt.MapClaims); ok {
-		if sub, ok := claims["sub"].(string); ok {
-			return sub, nil
-		}
-	}
-
-	return "", jwt.ErrInvalidKeyType
+// WSMessage represents the generic envelope exchanged with client over WebSocket
+type WSMessage struct {
+	Type        WSEventType     `json:"type"`
+	ClientMsgID string          `json:"client_msg_id,omitempty"`
+	Timestamp   int64           `json:"timestamp,omitempty"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
 }
 
-func HandleWebSocket(hub *connection.Hub, jwtSecret string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		tokenStr := r.URL.Query().Get("token")
-		deviceID := r.URL.Query().Get("device_id")
+type SendMessagePayload struct {
+	ConversationID string `json:"conversation_id"`
+	ReceiverID     string `json:"receiver_id,omitempty"`
+	Content        string `json:"content"`
+}
 
-		if deviceID == "" {
-			http.Error(w, "missing device id", http.StatusBadRequest)
-			return
-		}
+type FailedToSendPayload struct {
+	Error string `json:"error"`
+}
 
-		if tokenStr == "" {
-			http.Error(w, "missing token", http.StatusBadRequest)
-			return
-		}
+type MessageDeliveryPayload struct {
+	MessageID      string                      `json:"message_id"`
+	ClientMsgID    string                      `json:"client_msg_id,omitempty"`
+	ConversationID string                      `json:"conversation_id"`
+	SenderID       string                      `json:"sender_id"`
+	ReceiverID     string                      `json:"receiver_id,omitempty"`
+	Content        string                      `json:"content"`
+	Type           contracts.BrokerMessageType `json:"type"`
+	Timestamp      int64                       `json:"timestamp"`
+}
 
-		userID, err := validateToken(tokenStr, jwtSecret)
-		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			http.Error(w, "Failed to establish websocket connection", http.StatusInternalServerError)
-			return
-		}
-
-		client := &connection.Client{
-			UserID:   userID,
-			DeviceID: deviceID,
-			Hub:      hub,
-			SendChan: make(chan *domain.WSMessage, 256),
-			Conn:     conn,
-		}
-
-		hub.RegisterClient(client)
-
-		go client.ReadPump()
-		go client.WritePump()
+func (msDelivery *MessageDeliveryPayload) NewWSMessageFromDelivery() (*WSMessage, error) {
+	bytes, err := json.Marshal(msDelivery)
+	if err != nil {
+		return nil, err
 	}
+	return &WSMessage{
+		Type:        WSEventSendMessage,
+		ClientMsgID: msDelivery.ClientMsgID,
+		Timestamp:   msDelivery.Timestamp,
+		Payload:     bytes,
+	}, nil
 }
 </file>
 
@@ -5239,7 +6456,120 @@ pids/
 *.pid.lock
 </file>
 
-<file path="knowledge/README.md">
+<file path="AGENTS.md">
+# AI Backend Mentor & Distributed Systems Architect Guidelines
+
+Bạn đóng vai trò là một **Staff/Senior Backend Architect & Systems Mentor**. Mục tiêu của bạn không chỉ là sinh mã nguồn mà là **đào tạo và định hình tư duy của người dùng trở thành một Senior Backend Engineer thực thụ**, có khả năng thiết kế và vận hành các hệ thống phân tán quy mô lớn (High Throughput, Low Latency, High Availability).
+
+---
+
+## 1. Phong cách giảng dạy & Phản hồi (Teaching & Communication Style)
+- **Giao tiếp hoàn toàn bằng Tiếng Việt.**
+- **Tư duy "Why trước How":** Trước khi đưa ra bất kỳ đoạn code nào, luôn giải thích bản chất kiến trúc, lý do tại sao chọn giải pháp này (Architecture Trade-offs), và các lựa chọn thay thế (Alternative Approaches).
+- **Tư duy phản biện sắc bén (Devil's Advocate & Critical Thinking):**
+  - Không đồng ý dễ dãi với các giải pháp chỉ chạy đúng ở "Happy Path". Luôn chỉ ra điểm yếu (flaws), rủi ro tiềm ẩn (hidden risks), và chi phí kỹ thuật (technical debt) của mỗi quyết định.
+  - Đóng vai trò là người "chất vấn kỹ thuật" (Socratic questioning) để rèn luyện bản lĩnh kiến trúc cho người học.
+- **Hướng dẫn từng bước (Step-by-Step Mentoring):** Cung cấp các đoạn code mẫu sạch (Clean Code), chuẩn mực, có comment giải thích rõ ràng để người dùng tự tay đọc hiểu và tích hợp vào dự án.
+- **Không viết code thay toàn bộ khi người dùng muốn học:** Chia nhỏ vấn đề thành các bài học/mô-đun logic để người dùng nắm chắc từng phần.
+
+---
+
+## 2. Phương pháp luận Đào tạo Tư duy săn "Edge Cases" (Edge Case Discovery Framework)
+
+Huấn luyện người dùng thói quen nhìn hệ thống qua **4 Lăng kính Sự cố (Failure Lenses)**:
+
+### 🔍 Lăng kính 1: Thời gian & Bất đồng bộ (Time & Concurrency Lens)
+- *Câu hỏi rèn luyện:* "Điều gì xảy ra nếu 2 request đến cùng mili-giây?", "Nếu message B đến trước message A thì sao?", "Nếu client ngắt kết nối đúng lúc server chuẩn bị ghi DB?".
+- *Chủ đề:* Race conditions, Out-of-order delivery, Thundering Herd, Clock skew.
+
+### 🔍 Lăng kính 2: Sự cố Mạng & Node (Network & Partial Failure Lens)
+- *Câu hỏi rèn luyện:* "Nếu gọi downstream bị timeout nhưng thực chất downstream đã insert thành công thì sao?", "Nếu broker crash đúng lúc ack message?", "Network bị nghẽn (jitter/high latency) thì queue có bị phình to làm OOM không?".
+- *Chủ đề:* Dual-write problem, At-least-once duplicates, Backpressure, Zombie requests, Split-brain.
+
+### 🔍 Lăng kính 3: Giới hạn Dữ liệu & Tải đột biến (Data Boundary & Load Lens)
+- *Câu hỏi rèn luyện:* "Một group chat có 1 triệu user gửi 1 tin nhắn thì fan-out thế nào?", "Nếu một partition key nhận 90% lượng traffic (Hotspot) thì xử lý sao?", "Nếu payload chứa ký tự độc hoặc payload rỗng/quá khổ?".
+- *Chủ đề:* Hot partition, Tombstone saturation, Poison pill message, Memory exhaustion.
+
+### 🔍 Lăng kính 4: Trạng thái & Vòng đời (State Machine & Lifecycle Lens)
+- *Câu hỏi rèn luyện:* "Entity có thể nhảy từ State X sang State Z mà bỏ qua State Y không?", "Nếu user retry 5 lần thì có bị charge tiền / gửi tin nhắn 5 lần không?".
+- *Chủ đề:* Idempotency Key, Finite State Machine (FSM) validation, Distributed Locking pitfalls.
+
+---
+
+## 3. Tiêu chuẩn kiến thức cần đào sâu (Deep-Dive Focus Areas)
+
+Mọi giải pháp kỹ thuật cần được phân tích dưới lăng kính của một kỹ sư backend cấp cao:
+
+### A. Hệ thống phân tán (Distributed Systems)
+- **Đảm bảo tính nhất quán dữ liệu:** Mô hình Consistency (Eventual Consistency, Strong Consistency, Linearizability), CAP/PACELC Theorem.
+- **Ngữ cảnh bất đồng bộ & Broker:** Out-of-order delivery, At-least-once delivery, Idempotency patterns, Message deduplication, Poison pill messages.
+- **Xử lý sự cố mạng & Node failure:** Network partitions, Split-brain, Circuit Breakers, Exponential Backoff, Dead Letter Queues (DLQ).
+
+### B. Cơ sở dữ liệu & Storage Engine
+- **NoSQL / LSM-Tree vs B-Tree:** Hiểu sâu cơ chế ghi của Cassandra/ScyllaDB (CommitLog, MemTable, SSTable, Compaction), cách thiết kế Partition Key / Clustering Key để tránh Hotspot Node và Tombstone issues.
+- **Caching & In-memory (Redis):** Cache Stampede, Cache Penetration, Cache Breakdown, Atomic operations (`SETNX`, Lua script), TTL Strategy.
+
+### C. Concurrency & Performance trong Go
+- **Concurrency Patterns:** Worker Pools, Fan-in/Fan-out, Context cancellation & Timeout propagation, Race conditions, Deadlocks, Memory leak do Goroutine leak.
+- **Clean Architecture & Idiomatic Go:** Tách bạch Domain, Repository, Usecase, Delivery; Dependency Injection; Defensive programming; Error wrapping (`%w`).
+
+---
+
+## 4. Quy trình hướng dẫn tính năng mới (Feature Workflow)
+
+Khi hướng dẫn một tính năng:
+1. **Phân tích bài toán & "Bẫy" Edge Cases:** Liệt kê các kịch bản lỗi, race condition, hoặc điểm nghẽn có thể xảy ra ở quy mô production; đặt câu hỏi để người dùng tự nhận ra bẫy trước khi đưa ra đáp án.
+2. **Thiết kế Contract / Data Flow:** Vẽ luồng dữ liệu (Data Flow) và cấu trúc dữ liệu.
+3. **Cung cấp Code mẫu chuẩn Clean Code:** Code có type-safety, xử lý lỗi triệt để, idiomatic Go.
+4. **Thử thách Phản biện (Challenge):** Đưa ra ít nhất 1 câu hỏi "phản biện góc tối" (Edge case challenge) để người dùng tự suy ngẫm, phản biện và củng cố kiến thức.
+</file>
+
+<file path="deployments/k8s/03-ws-gateway-ingress-service.yaml">
+apiVersion: v1
+kind: Service
+metadata:
+  name: ws-gateway-public
+  namespace: chat-system
+  labels:
+    app: ws-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: ws-gateway
+  ports:
+    - name: websocket
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+</file>
+
+<file path="deployments/kind-config.yaml">
+# deployments/kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP
+  - role: worker
+  - role: worker
+</file>
+
+<file path="knowledge/system_design/README.md">
 # Kiến Trúc Hệ Thống & Tư Duy Phân Tán (System Architecture & Distributed Thinking)
 
 Thư mục này lưu trữ các bài học, phân tích chuyên sâu về các vấn đề hóc búa, edge cases và giải pháp thực tế trong quá trình xây dựng hệ thống Chat phân tán quy mô lớn.
@@ -5254,102 +6584,8 @@ Thư mục này lưu trữ các bài học, phân tích chuyên sâu về các v
 2. [02. Dual-Write Partial Failure, Poison Pill & State Reconciliation](file:///d:/BACKEND/PROJECTS/chat-system/knowledge/02_dual_write_partial_failure_and_state_reconciliation.md)
    - *Nội dung:* Bài toán thất bại một phần khi lưu DB và gửi ACK, phân tích trade-off giữa `return err` vs `return nil`, hiện tượng Phantom Message và cơ chế State Reconciliation 2 chiều.
 
-3. [03. Idempotency State Machine, Lock Rollback & Two-Phase TTL](file:///d:/BACKEND/PROJECTS/chat-system/knowledge/03_idempotency_state_machine_and_ttl_rollback.md)
+3. [03. Idempotency State Machine, Lock Rollback & Two-Phase TTL](file:///d:/BACKEND/PROJECTS/chat-system/knowledge/system_design/03_idempotency_state_machine_and_ttl_rollback.md)
    - *Nội dung:* Vấn đề kẹt khóa vĩnh viễn (Permanent Lockout), xử lý rollback khi DB lỗi, và giải pháp Two-Phase Idempotency State (Short TTL vs Long TTL) tự phục hồi khi server crash.
-</file>
-
-<file path="Makefile">
-.PHONY: help infra-up infra-down infra-logs app-up app-down app-build app-logs run-api run-gateway run-worker run-noti migrate-run migrate-revert all-up all-down
-
-# ==========================================
-# 1. HELP & USAGE
-# ==========================================
-help:
-	@echo "================================================================"
-	@echo "                    CHAT SYSTEM COMMANDS                        "
-	@echo "================================================================"
-	@echo "1. INFRASTRUCTURE:"
-	@echo "  make infra-up        - Start Postgres, Redis, ScyllaDB, NATS"
-	@echo "  make infra-down      - Stop all infrastructure services"
-	@echo "  make infra-logs      - View infrastructure logs"
-	@echo ""
-	@echo "2. FULL APPLICATION (DOCKER COMPOSE):"
-	@echo "  make app-up          - Start application services in Docker"
-	@echo "  make app-build       - Rebuild images and start services"
-	@echo "  make app-down        - Stop application services"
-	@echo "  make app-logs        - View logs of all applications"
-	@echo ""
-	@echo "3. LOCAL DEVELOPMENT (RUN DIRECTLY ON HOST):"
-	@echo "  make run-api         - Run NestJS API Service (Watch mode)"
-	@echo "  make run-gateway     - Run WebSocket Gateway (Go)"
-	@echo "  make run-worker      - Run Chat Worker (Go)"
-	@echo "  make run-noti        - Run Notification Service (Go)"
-	@echo ""
-	@echo "4. DATABASE & MIGRATIONS (API-SERVICE):"
-	@echo "  make migrate-run     - Run TypeORM migrations"
-	@echo "  make migrate-revert  - Revert the most recent migration"
-	@echo ""
-	@echo "5. ALL-IN-ONE:"
-	@echo "  make all-up          - Start Infrastructure + Application"
-	@echo "  make all-down        - Stop everything"
-	@echo "================================================================"
-
-# ==========================================
-# 2. INFRASTRUCTURE
-# ==========================================
-infra-up:
-	docker compose -f deployments/docker-compose.infra.yml up -d
-
-infra-down:
-	docker compose -f deployments/docker-compose.infra.yml down
-
-infra-logs:
-	docker compose -f deployments/docker-compose.infra.yml logs -f
-
-# ==========================================
-# 3. DOCKER COMPOSE APP
-# ==========================================
-app-up:
-	docker compose -f deployments/docker-compose.yml up -d
-
-app-build:
-	docker compose -f deployments/docker-compose.yml up -d --build
-
-app-down:
-	docker compose -f deployments/docker-compose.yml down
-
-app-logs:
-	docker compose -f deployments/docker-compose.yml logs -f
-
-# ==========================================
-# 4. LOCAL DEVELOPMENT
-# ==========================================
-run-api:
-	cd services/api-service && npm run start:dev
-
-run-gateway:
-	cd services/ws-gateway && go run cmd/main.go
-
-run-worker:
-	cd services/chat-worker && go run cmd/main.go
-
-run-noti:
-	cd services/notification-service && go run cmd/main.go
-
-# ==========================================
-# 5. DATABASE MIGRATIONS
-# ==========================================
-migrate-run:
-	cd services/api-service && npm run migration:run
-
-migrate-revert:
-	cd services/api-service && npm run migration:revert
-
-# ==========================================
-# 6. ALL-IN-ONE
-# ==========================================
-all-up: infra-up app-up
-all-down: app-down infra-down
 </file>
 
 <file path="pkg/contracts/events.go">
@@ -5383,6 +6619,7 @@ type InboundBrokerEvent struct {
 // SendMessagePayload is the unmarshaled payload of a MESSAGE_SUBMITTED event
 type SendMessagePayload struct {
 	ConversationID string `json:"conversation_id"`
+	ReceiverID     string `json:"receiver_id,omitempty"`
 	Content        string `json:"content"`
 }
 
@@ -5409,27 +6646,15 @@ type NotificationBrokerEvent struct {
 }
 </file>
 
-<file path="pkg/go.mod">
-module chat-system/pkg
+<file path="pkg/contracts/topics.go">
+package contracts
 
-go 1.25.0
+import "fmt"
 
-require (
-	github.com/nats-io/nats.go v1.53.1
-	google.golang.org/grpc v1.83.2
-	google.golang.org/protobuf v1.36.12
-)
-
-require (
-	github.com/klauspost/compress v1.18.5 // indirect
-	github.com/nats-io/nkeys v0.4.15 // indirect
-	github.com/nats-io/nuid v1.0.1 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
-)
+// GatewayNodeSubject returns the dedicated subject for a specific WebSocket Gateway node
+func GatewayNodeSubject(nodeID string) string {
+	return fmt.Sprintf("chat.gateway.%s", nodeID)
+}
 </file>
 
 <file path="services/api-service/.prettierrc">
@@ -5441,6 +6666,39 @@ require (
   "printWidth": 80,
   "bracketSpacing": true
 }
+</file>
+
+<file path="services/api-service/Dockerfile">
+FROM node:22-alpine AS deps
+WORKDIR /usr/src/app
+
+COPY package*.json .
+RUN npm ci
+
+FROM node:22-alpine AS builder
+WORKDIR /usr/src/app
+
+COPY --from=deps /usr/src/app/node_modules ./node_modules
+COPY . .
+
+RUN npm run build
+
+ENV NODE_ENV=production
+RUN npm prune --production
+
+FROM node:22-alpine AS runner
+WORKDIR /usr/src/app
+
+ENV NODE_ENV=production
+
+USER node
+
+COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /usr/src/app/dist ./dist
+COPY --from=builder --chown=node:node /usr/src/app/package*.json ./
+
+EXPOSE 3000
+CMD ["node", "dist/main.js"]
 </file>
 
 <file path="services/api-service/eslint.config.mjs">
@@ -5680,57 +6938,329 @@ bootstrap().catch((err) => {
 });
 </file>
 
-<file path="services/api-service/tsconfig.json">
-{
-  "compilerOptions": {
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "resolvePackageJsonExports": true,
-    "esModuleInterop": true,
-    "isolatedModules": true,
-    "declaration": true,
-    "removeComments": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "allowSyntheticDefaultImports": true,
-    "target": "ES2023",
-    "sourceMap": true,
-    "outDir": "./dist",
-    "incremental": true,
-    "skipLibCheck": true,
-    "strictNullChecks": true,
-    "forceConsistentCasingInFileNames": true,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
-  }
+<file path="services/chat-engine/Dockerfile">
+# ==========================================
+# 1. BUILD STAGE
+# ==========================================
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+
+# Copy các file go.mod cần thiết
+COPY pkg/go.mod pkg/go.sum* ./pkg/
+COPY services/chat-engine/go.mod services/chat-engine/go.sum* ./services/chat-engine/
+
+# Khởi tạo workspace cục bộ cho chat-engine và pkg
+RUN go work init ./pkg ./services/chat-engine
+
+# Copy mã nguồn
+COPY pkg/ ./pkg/
+COPY services/chat-engine/ ./services/chat-engine/
+
+# Build binary
+WORKDIR /app/services/chat-engine
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /chat-worker ./cmd/main.go
+
+# ==========================================
+# 2. RUNTIME STAGE
+# ==========================================
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /root/
+COPY --from=builder /chat-worker .
+COPY --from=builder /app/services/chat-engine/configs ./configs
+
+CMD ["./chat-worker"]
+</file>
+
+<file path="services/chat-engine/go.mod">
+module chat-worker
+
+go 1.25.0
+
+require (
+	github.com/caarlos0/env/v11 v11.4.1
+	github.com/gocql/gocql v1.7.0
+	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/nats-io/nats.go v1.53.1
+	github.com/redis/go-redis/v9 v9.22.0
+	gopkg.in/yaml.v3 v3.0.1
+)
+
+require (
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/golang/snappy v1.0.0 // indirect
+	github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed // indirect
+	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/nats-io/nkeys v0.4.15 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
+	golang.org/x/crypto v0.49.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
+	gopkg.in/inf.v0 v0.9.1 // indirect
+)
+</file>
+
+<file path="services/chat-engine/internal/dispatcher/dispatcher.go">
+package dispatcher
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"chat-system/pkg/contracts"
+	"chat-worker/internal/config"
+
+	"github.com/nats-io/nats.go"
+)
+
+// EventDispatcher định nghĩa giao diện chung cho việc định tuyến outbound event (gRPC hoặc NATS Broker)
+type EventDispatcher interface {
+	// SendAckToSender gửi sự kiện ACK về đúng Node Gateway mà người gửi đang kết nối
+	SendAckToSender(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error
+
+	// DispatchToGateway chuyển tiếp tin nhắn tới đúng Node Gateway mà người nhận đang kết nối
+	DispatchToGateway(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error
+
+	// Close giải phóng tài nguyên kết nối (gRPC conns, etc.)
+	Close() error
+}
+
+// NewEventDispatcher khởi tạo dispatcher tương ứng với DeliveryMode đã cấu hình
+func NewEventDispatcher(cfg *config.DeliveryConfig, nc *nats.Conn) (EventDispatcher, error) {
+	switch cfg.Mode {
+	case "grpc":
+		log.Printf("[Dispatcher] Initializing gRPC Event Dispatcher (default port: %d, suffix: '%s')",
+			cfg.GRPCPort, cfg.GRPCServiceSuffix)
+		return NewGRPCEventDispatcher(cfg, nc), nil
+	case "broker":
+		log.Println("[Dispatcher] Initializing NATS Broker Event Dispatcher")
+		return NewNATSEventDispatcher(nc), nil
+	default:
+		return nil, fmt.Errorf("unsupported delivery mode '%s', must be 'grpc' or 'broker'", cfg.Mode)
+	}
 }
 </file>
 
-<file path="services/chat-engine/configs/config.yaml">
-worker:
-  id: "chat-worker-01"
-  concurrency: 10
+<file path="services/chat-engine/internal/repository/idempotency_repo.go">
+package repository
 
-nats:
-  url: "nats://localhost:4222"
-  inbound_subject: "chat.inbound"
-  inbound_stream: "CHAT_INBOUND"
-  inbound_consumer_group: "chat-worker-group"
-  outbound_subject_prefix: "chat.gateway."
-  notification_subject: "chat.notifications"
+import (
+	"context"
+	"fmt"
+	"time"
 
-database:
-  hosts:
-    - "cassandra:9042"
-  keyspace: "chat_system"
-  table: "messages"
+	"github.com/redis/go-redis/v9"
+)
 
-redis:
-  addr: "localhost:6379"
-  password: ""
-  db: 0
-  idempotency_ttl_seconds: 86400
+type IdempotencyRepository interface {
+	AcquireLock(ctx context.Context, clientMsgID string) (bool, error)
+	ReleaseLock(ctx context.Context, clientMsgID string) error
+}
+
+type redisIdempotencyRepository struct {
+	client *redis.Client
+	ttl    time.Duration
+}
+
+func NewRedisIdempotencyRepository(client *redis.Client, ttl time.Duration) IdempotencyRepository {
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	return &redisIdempotencyRepository{
+		client: client,
+		ttl:    ttl,
+	}
+}
+
+func (r *redisIdempotencyRepository) AcquireLock(ctx context.Context, clientMsgID string) (bool, error) {
+	if clientMsgID == "" {
+		return false, fmt.Errorf("clientMsgID cannot be empty")
+	}
+
+	key := fmt.Sprintf("idempotency:msg:%s", clientMsgID)
+
+	// Lệnh SET key value NX EX ttl là thao tác nguyên tử (Atomic) trong Redis
+	acquired, err := r.client.SetNX(ctx, key, "PROCESSED", r.ttl).Result()
+	if err != nil {
+		return false, fmt.Errorf("redis setnx failed for key %s: %w", key, err)
+	}
+
+	return acquired, nil
+}
+
+func (r *redisIdempotencyRepository) ReleaseLock(ctx context.Context, clientMsgID string) error {
+	if clientMsgID == "" {
+		return nil
+	}
+
+	key := fmt.Sprintf("idempotency:msg:%s", clientMsgID)
+	if err := r.client.Del(ctx, key).Err(); err != nil {
+		return fmt.Errorf("redis del failed for key %s: %w", key, err)
+	}
+
+	return nil
+}
+</file>
+
+<file path="services/client-simulator/cmd/main.go">
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"client-simulator/internal/auth"
+	"client-simulator/internal/bot"
+	"client-simulator/internal/conversation"
+	"client-simulator/internal/metrics"
+)
+
+func main() {
+	numBots := flag.Int("bots", 10, "Số lượng bot muốn tạo và chạy mô phỏng")
+	convsPerBot := flag.Int("convs", 5, "Số lượng cuộc hội thoại 1-1 tối đa trên mỗi bot")
+	sendInterval := flag.Duration("interval", 1*time.Second, "Tần suất gửi tin nhắn của mỗi bot (vd: 500ms, 1s, 2s)")
+	apiURL := flag.String("api", "http://localhost", "URL gốc của API Service (hoặc NGINX Ingress)")
+	wsURL := flag.String("ws", "ws://localhost/ws", "URL endpoint WebSocket của WS Gateway (hoặc NGINX Ingress)")
+	testDuration := flag.Duration("duration", 0, "Thời gian chạy test (0 = chạy liên tục đến khi Ctrl+C)")
+	botPassword := flag.String("password", "Pass@123456", "Mật khẩu chung cho các bot tài khoản")
+	flag.Parse()
+
+	log.Println("=================================================================")
+	log.Println("           🚀 KHỞI ĐỘNG CHAT CLIENT SIMULATOR                   ")
+	log.Println("=================================================================")
+	log.Printf("Cấu hình: %d bots | ~%d convs/bot | Interval: %s", *numBots, *convsPerBot, *sendInterval)
+	log.Printf("API Service: %s | WS Gateway: %s", *apiURL, *wsURL)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	if *testDuration > 0 {
+		log.Printf("⏱️ Chế độ: Chạy trong %s rồi tự động dừng.", *testDuration)
+		var cancelTimer context.CancelFunc
+		ctx, cancelTimer = context.WithTimeout(ctx, *testDuration)
+		defer cancelTimer()
+	} else {
+		log.Println("♾️ Chế độ: Chạy liên tục vô hạn (nhấn Ctrl+C để dừng và xem báo cáo tổng kết).")
+	}
+
+	authClient := auth.NewAuthClient(*apiURL)
+	convoManager := conversation.NewManager(*apiURL)
+	tracker := metrics.NewTracker()
+
+	// 1. GIAI ĐOẠN 1: Authenticate / Register Bots
+	log.Printf("[Phase 1] Authenticating %d bots via API Service...", *numBots)
+	botSessions := make([]*auth.BotSession, 0, *numBots)
+
+	for i := 1; i <= *numBots; i++ {
+		username := fmt.Sprintf("sim_bot_%04d", i)
+		session, err := authClient.EnsureBotAuth(username, *botPassword)
+		if err != nil {
+			log.Fatalf("Failed to authenticate bot %s: %v", username, err)
+		}
+		botSessions = append(botSessions, session)
+		if i%10 == 0 || i == *numBots {
+			log.Printf("  - Authenticated: %d/%d bots", i, *numBots)
+		}
+	}
+
+	// 2. GIAI ĐOẠN 2: Setup Conversation Network
+	log.Printf("[Phase 2] Setting up direct conversations between bots...")
+	botTargets := convoManager.EnsureDirectConversations(botSessions, *convsPerBot)
+
+	// 3. GIAI ĐOẠN 3: Connect WebSocket Clients
+	log.Printf("[Phase 3] Establishing WebSocket connections for %d bots...", len(botSessions))
+	bots := make([]*bot.Bot, 0, len(botSessions))
+
+	var activeBotsCount sync.WaitGroup
+	var activeCount int64
+
+	for _, session := range botSessions {
+		targets := botTargets[session.UserID]
+		b := bot.NewBot(session, *wsURL, targets, tracker)
+
+		if err := b.Connect(ctx); err != nil {
+			log.Printf("WARN: Bot %s failed to connect WS: %v", session.Username, err)
+			continue
+		}
+
+		b.Start(ctx, *sendInterval)
+		bots = append(bots, b)
+		activeCount++
+	}
+
+	log.Printf("Successfully connected %d/%d bots to WebSocket Gateway!", activeCount, *numBots)
+	time.Sleep(1 * time.Second)
+
+	// 4. GIAI ĐOẠN 4: Live Dashboard Display Loop
+	startTime := time.Now()
+	dashboardTicker := time.NewTicker(1 * time.Second)
+	defer dashboardTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("\nStopping simulator and closing connections...")
+			for _, b := range bots {
+				b.Stop()
+			}
+			activeBotsCount.Wait()
+
+			// Print final summary
+			tracker.PrintDashboard(0, *numBots, time.Since(startTime))
+			log.Println("\n✅ Simulator finished cleanly.")
+			return
+
+		case <-dashboardTicker.C:
+			tracker.PrintDashboard(int(activeCount), *numBots, time.Since(startTime))
+		}
+	}
+}
+</file>
+
+<file path="services/notification-service/Dockerfile">
+# ==========================================
+# 1. BUILD STAGE
+# ==========================================
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+
+# Copy các file go.mod cần thiết
+COPY pkg/go.mod pkg/go.sum* ./pkg/
+COPY services/notification-service/go.mod services/notification-service/go.sum* ./services/notification-service/
+
+# Khởi tạo workspace cục bộ cho notification-service và pkg
+RUN go work init ./pkg ./services/notification-service
+
+# Copy mã nguồn
+COPY pkg/ ./pkg/
+COPY services/notification-service/ ./services/notification-service/
+
+# Build binary
+WORKDIR /app/services/notification-service
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /notification-service ./cmd/main.go
+
+# ==========================================
+# 2. RUNTIME STAGE
+# ==========================================
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /root/
+COPY --from=builder /notification-service .
+COPY --from=builder /app/services/notification-service/configs ./configs
+
+CMD ["./notification-service"]
 </file>
 
 <file path="services/ws-gateway/configs/config.yaml">
@@ -5754,6 +7284,188 @@ grpc:
   advertised_addr: "localhost:50051"
 </file>
 
+<file path="services/ws-gateway/Dockerfile">
+# ==========================================
+# 1. BUILD STAGE
+# ==========================================
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+
+# Copy các file go.mod cần thiết
+COPY pkg/go.mod pkg/go.sum* ./pkg/
+COPY services/ws-gateway/go.mod services/ws-gateway/go.sum* ./services/ws-gateway/
+
+# Khởi tạo workspace cục bộ cho riêng ws-gateway và pkg
+RUN go work init ./pkg ./services/ws-gateway
+
+# Copy mã nguồn
+COPY pkg/ ./pkg/
+COPY services/ws-gateway/ ./services/ws-gateway/
+
+# Build binary
+WORKDIR /app/services/ws-gateway
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /ws-gateway ./cmd/main.go
+
+# ==========================================
+# 2. RUNTIME STAGE
+# ==========================================
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /root/
+COPY --from=builder /ws-gateway .
+COPY --from=builder /app/services/ws-gateway/configs ./configs
+
+EXPOSE 8080
+CMD ["./ws-gateway"]
+</file>
+
+<file path="services/ws-gateway/internal/connection/client.go">
+package connection
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"time"
+
+	"chat-system/pkg/contracts"
+	"ws-gateway/internal/config"
+	"ws-gateway/internal/payload"
+
+	"github.com/gorilla/websocket"
+)
+
+// Client represents a single active WebSocket connection
+type Client struct {
+	UserID   string
+	DeviceID string
+	SendChan chan *payload.WSMessage
+	Conn     *websocket.Conn
+	Hub      *Hub
+}
+
+// ReadPump handles reading messages from the WebSocket connection
+func (c *Client) ReadPump() {
+	defer func() {
+		c.Hub.UnregisterClient(c)
+		c.Conn.Close()
+	}()
+
+	c.Conn.SetReadLimit(int64(config.Cfg.Ws.MaxMessageSize))
+	pongWait := time.Duration(config.Cfg.Ws.PongWait) * time.Second
+	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+
+	c.Conn.SetPongHandler(func(string) error {
+		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	for {
+		var msg payload.WSMessage
+		err := c.Conn.ReadJSON(&msg)
+
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("[ReadPump] error reading message from user %s: %v", c.UserID, err)
+			}
+			break
+		}
+
+		c.handleIncomingMessage(&msg)
+	}
+}
+
+func (c *Client) handleIncomingMessage(msg *payload.WSMessage) {
+	switch msg.Type {
+	case payload.WSEventHeartbeat:
+		log.Printf("Heartbeat received from user %s", c.UserID)
+		go func(c *Client) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := c.Hub.presence.Heartbeat(ctx, c.UserID, c.DeviceID, config.Cfg.Server.NodeID, time.Duration(config.Cfg.Pres.TTL)*time.Second); err != nil {
+				log.Printf("Error sending heartbeat for user %s: %v", c.UserID, err)
+			}
+		}(c)
+	case payload.WSEventSendMessage:
+		brokerMessageType, ok := msg.Type.ToBrokerMessageType()
+		if !ok {
+			log.Printf("Unhandled message type: %s", msg.Type)
+			return
+		}
+
+		inboundEvent := contracts.InboundBrokerEvent{
+			Type:        brokerMessageType,
+			ClientMsgID: msg.ClientMsgID,
+			SenderID:    c.UserID,
+			DeviceID:    c.DeviceID,
+			GatewayNode: config.Cfg.Server.NodeID,
+			Payload:     msg.Payload,
+			SentAt:      time.Now().UTC(),
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		if err := c.Hub.producer.Publish(ctx, inboundEvent); err != nil {
+			c.sendErrorMessage(msg.ClientMsgID, "Failed to send message")
+			return
+		}
+	default:
+		log.Printf("Unhandled message type: %s", msg.Type)
+	}
+}
+
+func (c *Client) sendErrorMessage(clientMsgID string, errorMsg string) {
+	errPayload, _ := json.Marshal(payload.FailedToSendPayload{Error: errorMsg})
+
+	errMsg := &payload.WSMessage{
+		Type:        payload.WSEventFailedToSend,
+		ClientMsgID: clientMsgID,
+		Payload:     errPayload,
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	select {
+	case c.SendChan <- errMsg:
+	default:
+		log.Printf("[sendErrorMessage] SendChan full for user %s", c.UserID)
+	}
+}
+
+// WritePump handles pushing messages to the WebSocket connection
+func (c *Client) WritePump() {
+	pongWait := time.Duration(config.Cfg.Ws.PongWait) * time.Second
+	pingPeriod := (pongWait * 9) / 10
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.Conn.Close()
+	}()
+
+	for {
+		select {
+		case <-ticker.C:
+			c.Conn.SetWriteDeadline(time.Now().Add(time.Duration(config.Cfg.Ws.WriteDeadline) * time.Second))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("[WritePump] error sending ping to user %s: %v", c.UserID, err)
+				return
+			}
+		case msg, ok := <-c.SendChan:
+			c.Conn.SetWriteDeadline(time.Now().Add(time.Duration(config.Cfg.Ws.WriteDeadline) * time.Second))
+			if !ok {
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.Conn.WriteJSON(msg); err != nil {
+				log.Printf("[WritePump] error writing message to user %s: %v", c.UserID, err)
+				return
+			}
+		}
+	}
+}
+</file>
+
 <file path="services/ws-gateway/internal/delivery/grpc_delivery.go">
 package delivery
 
@@ -5765,7 +7477,7 @@ import (
 	"log"
 	"net"
 	"ws-gateway/internal/connection"
-	"ws-gateway/internal/domain"
+	"ws-gateway/internal/payload"
 
 	"google.golang.org/grpc"
 )
@@ -5813,7 +7525,7 @@ func (g *GRPCListener) PushMessageToUser(ctx context.Context, req *pb.PushMessag
 		return &pb.PushMessageResponse{Success: false, ErrorMessage: "receiver_id is required"}, nil
 	}
 
-	payload := domain.MessageDeliveryPayload{
+	deliveryPayload := payload.MessageDeliveryPayload{
 		MessageID:      req.MessageId,
 		ClientMsgID:    req.ClientMsgId,
 		ConversationID: req.ConversationId,
@@ -5824,7 +7536,7 @@ func (g *GRPCListener) PushMessageToUser(ctx context.Context, req *pb.PushMessag
 		Timestamp:      req.Timestamp,
 	}
 
-	wsMsg, err := payload.NewWSMessageFromDelivery()
+	wsMsg, err := deliveryPayload.NewWSMessageFromDelivery()
 	if err != nil {
 		return &pb.PushMessageResponse{Success: false, ErrorMessage: err.Error()}, nil
 	}
@@ -5834,250 +7546,157 @@ func (g *GRPCListener) PushMessageToUser(ctx context.Context, req *pb.PushMessag
 }
 </file>
 
-<file path="services/ws-gateway/internal/delivery/listener.go">
+<file path="services/ws-gateway/internal/delivery/nats_delivery.go">
 package delivery
 
-import "context"
-
-type DeliveryListener interface {
-	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
-}
-</file>
-
-<file path="deployments/docker-compose.yml">
-services:
-  # Api Service (NestJS)
-  api-service:
-    build:
-      context: ../services/api-service
-      dockerfile: Dockerfile
-    container_name: chat_api_service
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USERNAME=postgres
-      - DB_PASSWORD=postgrespassword
-      - DB_DATABASE=chat_db
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - JWT_SECRET=supersecretkey
-    networks:
-      - chat-network
-
-  # WebSocket Gateway
-  ws-gateway:
-    build:
-      context: ../services/ws-gateway
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-    networks:
-      - chat-network
-
-  # Chat Engine
-  chat-engine:
-    build:
-      context: ../services/chat-engine
-      dockerfile: Dockerfile
-    networks:
-      - chat-network
-
-  # Notification Service
-  notification-service:
-    build:
-      context: ../services/notification-service
-      dockerfile: Dockerfile
-    networks:
-      - chat-network
-
-networks:
-  chat-network:
-    name: chat-network
-    external: true
-</file>
-
-<file path="services/chat-engine/internal/config/config.go">
-package config
-
 import (
-	"fmt"
-	"os"
-
-	"go.yaml.in/yaml/v2"
-)
-
-type Config struct {
-	Worker   WorkerConfig   `yaml:"worker"`
-	NATS     NATSConfig     `yaml:"nats"`
-	Database DatabaseConfig `yaml:"database"`
-	Redis    RedisConfig    `yaml:"redis"`
-}
-
-type WorkerConfig struct {
-	ID string `yaml:"id"`
-}
-
-type NATSConfig struct {
-	URL                   string `yaml:"url"`
-	InboundSubject        string `yaml:"inbound_subject"`
-	InboundStream         string `yaml:"inbound_stream"`
-	InboundConsumerGroup  string `yaml:"inbound_consumer_group"`
-	OutboundSubjectPrefix string `yaml:"outbound_subject_prefix"`
-	NotificationSubject   string `yaml:"notification_subject"`
-}
-
-type DatabaseConfig struct {
-	Hosts    []string `yaml:"hosts"`
-	Keyspace string   `yaml:"keyspace"`
-	Table    string   `yaml:"table"`
-}
-
-type RedisConfig struct {
-	Addr                  string `yaml:"addr"`
-	Password              string `yaml:"password"`
-	DB                    int    `yaml:"db"`
-	IdempotencyTTLSeconds int    `yaml:"idempotency_ttl_seconds"`
-}
-
-var Cfg *Config
-
-func LoadConfig(path string) (*Config, error) {
-	if path == "" {
-		return nil, fmt.Errorf("đường dẫn file config không được để trống")
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("không thể đọc file config tại %s: %w", path, err)
-	}
-
-	var config Config
-
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("không thể parse file yaml config: %w", err)
-	}
-
-	Cfg = &config
-
-	if err := Cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("cấu hình không hợp lệ: %w", err)
-	}
-
-	return Cfg, nil
-}
-
-func (c *Config) Validate() error {
-	if c.Worker.ID == "" {
-		return fmt.Errorf("worker.id không được để trống")
-	}
-	if c.NATS.URL == "" {
-		return fmt.Errorf("nats.url không được để trống")
-	}
-	if c.NATS.InboundSubject == "" {
-		return fmt.Errorf("nats.inbound_subject không được để trống")
-	}
-	if len(c.Database.Hosts) == 0 {
-		return fmt.Errorf("database.hosts không được để trống")
-	}
-	if c.Redis.Addr == "" {
-		return fmt.Errorf("redis.addr không được để trống")
-	}
-	return nil
-}
-</file>
-
-<file path="services/chat-engine/internal/dispatcher/dispatcher.go">
-package dispatcher
-
-import (
-	"chat-system/pkg/contracts"
 	"context"
 	"fmt"
 	"log"
 
+	"chat-system/pkg/contracts"
 	natsclient "chat-system/pkg/nats"
+	"ws-gateway/internal/connection"
+	"ws-gateway/internal/payload"
 
 	"github.com/nats-io/nats.go"
 )
 
-type EventDispatcher interface {
-	SendAckToSender(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error
+type NATSListener struct {
+	nodeID     string
+	subscriber *natsclient.Subscriber[contracts.OutboundBrokerEvent]
+	hub        *connection.Hub
 }
 
-type natsEventDispatcher struct {
-	publisher *natsclient.Publisher[contracts.OutboundBrokerEvent]
-}
-
-// NewEventDispatcher khởi tạo Dispatcher sử dụng NATS Publisher
-func NewEventDispatcher(nc *nats.Conn) EventDispatcher {
-	return &natsEventDispatcher{
-		publisher: natsclient.NewPublisher[contracts.OutboundBrokerEvent](nc, ""),
+func NewNATSListener(nc *nats.Conn, nodeID string, hub *connection.Hub) *NATSListener {
+	subject := contracts.GatewayNodeSubject(nodeID)
+	return &NATSListener{
+		nodeID:     nodeID,
+		subscriber: natsclient.NewSubscriber[contracts.OutboundBrokerEvent](nc, subject),
+		hub:        hub,
 	}
 }
 
-// SendAckToSender gửi sự kiện ACK về đúng Node Gateway mà người gửi đang kết nối
-func (d *natsEventDispatcher) SendAckToSender(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error {
-	if gatewayNode == "" {
-		return fmt.Errorf("gatewayNode is empty, cannot route sender ack")
+func (n *NATSListener) Start(ctx context.Context) error {
+	err := n.subscriber.Start(ctx, func(ctx context.Context, event contracts.OutboundBrokerEvent) error {
+		deliveryPayload := payload.MessageDeliveryPayload{
+			MessageID:      event.MessageID,
+			ClientMsgID:    event.ClientMsgID,
+			ConversationID: event.ConversationID,
+			SenderID:       event.SenderID,
+			ReceiverID:     event.ReceiverID,
+			Content:        event.Content,
+			Type:           event.Type,
+			Timestamp:      event.Timestamp,
+		}
+
+		wsMsg, err := deliveryPayload.NewWSMessageFromDelivery()
+		if err != nil {
+			return err
+		}
+
+		targetUser := event.ReceiverID
+		if targetUser == "" {
+			targetUser = event.SenderID
+		}
+		n.hub.SendToUser(targetUser, wsMsg)
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to start NATS listener: %w", err)
 	}
-	// Topic định tuyến riêng cho từng node gateway: "chat.gateway.{node_id}"
-	subject := contracts.GatewayNodeSubject(gatewayNode)
-	if err := d.publisher.PublishToSubject(ctx, subject, event); err != nil {
-		return fmt.Errorf("failed to publish sender ack to subject '%s': %w", subject, err)
-	}
-	log.Printf("[Dispatcher] Sender ACK published: msg_id=%s, client_msg_id=%s -> subject=%s",
-		event.MessageID, event.ClientMsgID, subject)
+
+	log.Printf("[Delivery] Subscribed to NATS Subject: %s", contracts.GatewayNodeSubject(n.nodeID))
+	return nil
+}
+
+func (n *NATSListener) Stop(ctx context.Context) error {
+	log.Println("[Delivery] NATS listener stopped")
 	return nil
 }
 </file>
 
-<file path="services/chat-engine/internal/presence/presence.go">
-package presence
+<file path="services/ws-gateway/internal/handler/ws_handler.go">
+package handler
 
 import (
-	"context"
-	"fmt"
+	"errors"
+	"net/http"
 
-	"github.com/redis/go-redis/v9"
+	"ws-gateway/internal/connection"
+	"ws-gateway/internal/payload"
+
+	"github.com/golang-jwt/jwt"
+	"github.com/gorilla/websocket"
 )
 
-type PresenceReader interface {
-	GetUserRoutes(ctx context.Context, userID string) (map[string]string, error)
-	IsUserOnline(ctx context.Context, userID string) (bool, error)
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
-type redisPresenceReader struct {
-	client *redis.Client
-}
+func validateToken(tokenStr string, secret string) (string, error) {
+	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		return []byte(secret), nil
+	})
 
-func NewPresenceReader(client *redis.Client) PresenceReader {
-	return &redisPresenceReader{
-		client: client,
+	if err != nil || !token.Valid {
+		return "", errors.New("invalid token")
 	}
-}
 
-func presenceKey(userID string) string {
-	return fmt.Sprintf("presence:%s", userID)
-}
-
-// GetUserRoutes retrieves all active device -> gatewayNode mappings for a user.
-// Returns an empty map if user is offline or has no active devices.
-func (r *redisPresenceReader) GetUserRoutes(ctx context.Context, userID string) (map[string]string, error) {
-	return r.client.HGetAll(ctx, presenceKey(userID)).Result()
-}
-
-// IsUserOnline returns true if user has at least one active device online in Redis.
-func (r *redisPresenceReader) IsUserOnline(ctx context.Context, userID string) (bool, error) {
-	count, err := r.client.HLen(ctx, presenceKey(userID)).Result()
-	if err != nil {
-		return false, err
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		if sub, ok := claims["sub"].(string); ok {
+			return sub, nil
+		}
 	}
-	return count > 0, nil
+
+	return "", jwt.ErrInvalidKeyType
+}
+
+func HandleWebSocket(hub *connection.Hub, jwtSecret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := r.URL.Query().Get("token")
+		deviceID := r.URL.Query().Get("device_id")
+
+		if deviceID == "" {
+			http.Error(w, "missing device id", http.StatusBadRequest)
+			return
+		}
+
+		if tokenStr == "" {
+			http.Error(w, "missing token", http.StatusBadRequest)
+			return
+		}
+
+		userID, err := validateToken(tokenStr, jwtSecret)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			http.Error(w, "Failed to establish websocket connection", http.StatusInternalServerError)
+			return
+		}
+
+		client := &connection.Client{
+			UserID:   userID,
+			DeviceID: deviceID,
+			Hub:      hub,
+			SendChan: make(chan *payload.WSMessage, 256),
+			Conn:     conn,
+		}
+
+		hub.RegisterClient(client)
+
+		go client.ReadPump()
+		go client.WritePump()
+	}
 }
 </file>
 
@@ -6143,451 +7762,240 @@ func presenceKey(userID string) string {
 }
 </file>
 
-<file path="services/chat-engine/internal/consumer/consumer.go">
-package consumer
+<file path="deployments/k8s/05-api-service-deployment.yaml">
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-service
+  namespace: chat-system
+  labels:
+    app: api-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-service
+  template:
+    metadata:
+      labels:
+        app: api-service
+    spec:
+      containers:
+        - name: api-service
+          image: chat-system/api-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3000"
+            - name: DB_HOST
+              value: "postgres.chat-system.svc.cluster.local"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USERNAME
+              value: "postgres"
+            - name: DB_PASSWORD
+              value: "postgrespassword"
+            - name: DB_DATABASE
+              value: "chat_db"
+            - name: REDIS_HOST
+              value: "redis.chat-system.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: JWT_ACCESS_TOKEN_SECRET
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: chat-system
+spec:
+  type: ClusterIP
+  selector:
+    app: api-service
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+</file>
+
+<file path="services/api-service/tsconfig.json">
+{
+  "compilerOptions": {
+    "baseUrl": "./",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2023",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "noFallthroughCasesInSwitch": false
+  }
+}
+</file>
+
+<file path="services/chat-engine/cmd/main.go">
+package main
 
 import (
-	"chat-worker/internal/usecase"
 	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"chat-system/pkg/contracts"
 	natsclient "chat-system/pkg/nats"
-
-	"github.com/nats-io/nats.go"
-)
-
-// Consumer wraps NATS Queue Subscriber to consume inbound events from broker
-type Consumer struct {
-	subscriber  *natsclient.Subscriber[contracts.InboundBrokerEvent]
-	chatUsecase usecase.ChatUsecase
-}
-
-// NewConsumer creates a new Inbound Consumer with queue group support for worker load balancing
-func NewConsumer(nc *nats.Conn, subject, queueGroup string, chatUsecase usecase.ChatUsecase) *Consumer {
-	return &Consumer{
-		subscriber:  natsclient.NewQueueSubscriber[contracts.InboundBrokerEvent](nc, subject, queueGroup),
-		chatUsecase: chatUsecase,
-	}
-}
-
-// Start begins consuming messages asynchronously
-func (c *Consumer) Start(ctx context.Context) error {
-	return c.subscriber.Start(ctx, c.handleMessage)
-}
-
-// handleMessage processes inbound broker events
-func (c *Consumer) handleMessage(ctx context.Context, event contracts.InboundBrokerEvent) error {
-	if err := c.chatUsecase.ProcessInboundMessage(ctx, event); err != nil {
-		log.Printf("[Consumer] Error processing event client_msg_id=%s: %v", event.ClientMsgID, err)
-		return err
-	}
-	return nil
-}
-
-// Stop gracefully closes and drains the NATS subscription
-func (c *Consumer) Stop() error {
-	return c.subscriber.Close()
-}
-</file>
-
-<file path="services/chat-engine/internal/domain/message.go">
-package domain
-
-import "time"
-
-// Message represents the core message entity persisted in Cassandra
-type Message struct {
-	ConversationID string    `json:"conversation_id"`
-	ID             string    `json:"id"`
-	SenderID       string    `json:"sender_id"`
-	Content        string    `json:"content"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-}
-</file>
-
-<file path="deployments/docker-compose.infra.yml">
-services:
-  # PostgreSQL - User & Auth Metadata
-  postgres:
-    image: postgres:16-alpine
-    container_name: chat-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
-      POSTGRES_DB: chat_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - chat-network
-
-  # Redis - Presence Service & Idempotency Cache
-  redis:
-    image: redis:7-alpine
-    container_name: chat-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    networks:
-      - chat-network
-
-  # Apache Cassandra - High-throughput Message Store
-  cassandra:
-    image: cassandra:5.0
-    container_name: chat-cassandra
-    environment:
-      - CASSANDRA_CLUSTER_NAME=chat_cluster
-      - CASSANDRA_DC=datacenter1
-      - CASSANDRA_RACK=rack1
-      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      - MAX_HEAP_SIZE=1024M
-      - HEAP_NEWSIZE=256M
-    ports:
-      - "9042:9042"
-    volumes:
-      - cassandra_data:/var/lib/cassandra
-    healthcheck:
-      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    networks:
-      - chat-network
-
-
-  # NATS Server with JetStream enabled
-  nats:
-    image: nats:latest
-    container_name: chat-nats
-    ports:
-      - "4222:4222" # Client port
-      - "8222:8222" # HTTP Monitoring dashboard
-    command: ["-js", "-m", "8222"]
-    volumes:
-      - nats_data:/data
-    networks:
-      - chat-network
-
-networks:
-  chat-network:
-    name: chat-network
-    driver: bridge
-
-volumes:
-  postgres_data:
-  redis_data:
-  cassandra_data:
-  nats_data:
-</file>
-
-<file path="services/chat-engine/go.mod">
-module chat-worker
-
-go 1.25.0
-
-require (
-	github.com/gocql/gocql v1.7.0
-	github.com/golang-migrate/migrate/v4 v4.19.1
-	github.com/nats-io/nats.go v1.53.1
-	github.com/redis/go-redis/v9 v9.22.0
-	go.yaml.in/yaml/v2 v2.4.4
-)
-
-require (
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/golang/snappy v1.0.0 // indirect
-	github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
-	github.com/nats-io/nkeys v0.4.15 // indirect
-	github.com/nats-io/nuid v1.0.1 // indirect
-	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	gopkg.in/inf.v0 v0.9.1 // indirect
-)
-</file>
-
-<file path="services/chat-engine/internal/repository/message_repo.go">
-package repository
-
-import (
-	"context"
-	"fmt"
-	"net"
-	"strconv"
-	"strings"
-	"time"
-
 	"chat-worker/internal/config"
-	"chat-worker/internal/domain"
+	"chat-worker/internal/consumer"
+	"chat-worker/internal/dispatcher"
+	"chat-worker/internal/migrator"
+	"chat-worker/internal/presence"
+	"chat-worker/internal/repository"
+	"chat-worker/internal/usecase"
 
-	"github.com/gocql/gocql"
+	"github.com/redis/go-redis/v9"
 )
 
-// MessageRepository defines the data access contract for messages
-type MessageRepository interface {
-	SaveMessage(ctx context.Context, msg *domain.Message) error
-	GetMessagesByConversation(ctx context.Context, conversationID string, limit int) ([]*domain.Message, error)
-}
-
-// CassandraMessageRepository implements MessageRepository using Apache Cassandra
-type CassandraMessageRepository struct {
-	session *gocql.Session
-	table   string
-}
-
-// NewCassandraSession creates and initializes a Cassandra session based on configuration
-func NewCassandraSession(cfg *config.DatabaseConfig) (*gocql.Session, error) {
-	if len(cfg.Hosts) == 0 {
-		return nil, fmt.Errorf("cassandra hosts list is empty")
-	}
-
-	var hostList []string
-	port := 9042
-
-	for _, h := range cfg.Hosts {
-		if strings.Contains(h, ":") {
-			host, portStr, err := net.SplitHostPort(h)
-			if err == nil {
-				hostList = append(hostList, host)
-				if parsedPort, err := strconv.Atoi(portStr); err == nil && parsedPort > 0 {
-					port = parsedPort
-				}
-				continue
-			}
-		}
-		hostList = append(hostList, h)
-	}
-
-	cluster := gocql.NewCluster(hostList...)
-	cluster.Port = port
-	cluster.Keyspace = cfg.Keyspace
-	cluster.Consistency = gocql.LocalQuorum
-	cluster.Timeout = 5 * time.Second
-	cluster.ConnectTimeout = 10 * time.Second
-	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
-
-	session, err := cluster.CreateSession()
+func main() {
+	cfg, err := config.LoadConfig("configs/config.yaml")
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to cassandra cluster: %w", err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	return session, nil
-}
+	log.Printf("Starting Chat Engine worker: %s", cfg.Worker.ID)
 
-// NewCassandraMessageRepository creates a new instance of CassandraMessageRepository
-func NewCassandraMessageRepository(session *gocql.Session, table string) *CassandraMessageRepository {
-	return &CassandraMessageRepository{
-		session: session,
-		table:   table,
-	}
-}
-
-// SaveMessage inserts a new message into Cassandra
-func (r *CassandraMessageRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
-	query := fmt.Sprintf(`
-		INSERT INTO %s (conversation_id, id, sender_id, content, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, r.table)
-
-	return r.session.Query(query,
-		msg.ConversationID,
-		msg.ID,
-		msg.SenderID,
-		msg.Content,
-		msg.CreatedAt,
-		msg.UpdatedAt,
-	).WithContext(ctx).Exec()
-}
-
-// GetMessagesByConversation retrieves recent messages for a conversation
-func (r *CassandraMessageRepository) GetMessagesByConversation(ctx context.Context, conversationID string, limit int) ([]*domain.Message, error) {
-	if limit <= 0 {
-		return nil, nil
+	// Run Database Schema Migrations
+	if err := migrator.Run(&cfg.Database); err != nil {
+		log.Fatalf("Database migration failed: %v", err)
 	}
 
-	query := fmt.Sprintf(`
-		SELECT conversation_id, id, sender_id, content, created_at, updated_at
-		FROM %s
-		WHERE conversation_id = ?
-		LIMIT ?
-	`, r.table)
+	// Connect to NATS Broker
+	nc, err := natsclient.Connect(cfg.NATS.URL, "chat-worker-"+cfg.Worker.ID)
+	if err != nil {
+		log.Fatalf("Failed to connect to NATS: %v", err)
+	}
+	defer nc.Close()
 
-	iter := r.session.Query(query, conversationID, limit).WithContext(ctx).Iter()
-	defer iter.Close()
+	// Initialize Cassandra Database Session
+	dbSession, err := repository.NewCassandraSession(&cfg.Database)
+	if err != nil {
+		log.Fatalf("Failed to initialize Cassandra session: %v", err)
+	}
+	defer dbSession.Close()
 
-	var messages []*domain.Message
-	var convID, id, senderID, content string
-	var createdAt, updatedAt time.Time
+	// Initialize Redis Client
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	defer redisClient.Close()
 
-	for iter.Scan(&convID, &id, &senderID, &content, &createdAt, &updatedAt) {
-		messages = append(messages, &domain.Message{
-			ConversationID: convID,
-			ID:             id,
-			SenderID:       senderID,
-			Content:        content,
-			CreatedAt:      createdAt,
-			UpdatedAt:      updatedAt,
-		})
+	// Initialize Repositories, Presence & Dispatcher
+	idempotencyTTL := time.Duration(cfg.Redis.IdempotencyTTLSeconds) * time.Second
+	idempotencyRepo := repository.NewRedisIdempotencyRepository(redisClient, idempotencyTTL)
+	presenceReader := presence.NewPresenceReader(redisClient)
+	messageRepo := repository.NewCassandraMessageRepository(dbSession, cfg.Database.Table)
+
+	eventDispatcher, err := dispatcher.NewEventDispatcher(&cfg.Delivery, nc)
+	if err != nil {
+		log.Fatalf("Failed to initialize event dispatcher: %v", err)
+	}
+	defer eventDispatcher.Close()
+
+	// Initialize Usecase
+	dbTimeout := time.Duration(cfg.Database.TimeoutSeconds) * time.Second
+	chatUsecase := usecase.NewChatUsecase(messageRepo, idempotencyRepo, presenceReader, eventDispatcher, dbTimeout)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Initialize Inbound Consumer with worker queue group
+	inboundConsumer := consumer.NewConsumer(
+		nc,
+		cfg.NATS.InboundSubject,
+		cfg.NATS.InboundConsumerGroup,
+		chatUsecase,
+	)
+
+	if err := inboundConsumer.Start(ctx); err != nil {
+		log.Fatalf("Failed to start inbound consumer: %v", err)
 	}
 
-	if err := iter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to query messages: %w", err)
+	log.Printf("Consumer started on subject '%s' with queue group '%s'",
+		cfg.NATS.InboundSubject, cfg.NATS.InboundConsumerGroup)
+
+	// Wait for termination signal
+	<-ctx.Done()
+
+	log.Println("Shutting down Chat Engine...")
+	if err := inboundConsumer.Stop(); err != nil {
+		log.Printf("Error stopping consumer: %v", err)
 	}
 
-	return messages, nil
+	log.Println("Chat Engine exited cleanly")
 }
 </file>
 
-<file path="services/ws-gateway/internal/connection/client.go">
-package connection
+<file path="services/chat-engine/configs/config.yaml">
+worker:
+  id: "chat-worker-01"
+  concurrency: 10
 
-import (
-	"context"
-	"encoding/json"
-	"log"
-	"time"
+nats:
+  url: "nats://localhost:4222"
+  inbound_subject: "chat.inbound"
+  inbound_stream: "CHAT_INBOUND"
+  inbound_consumer_group: "chat-worker-group"
+  outbound_subject_prefix: "chat.gateway."
+  notification_subject: "chat.notifications"
 
-	"chat-system/pkg/contracts"
-	"ws-gateway/internal/config"
-	"ws-gateway/internal/domain"
+database:
+  hosts:
+    - "cassandra:9042"
+  keyspace: "chat_system"
+  table: "messages"
+  timeout_seconds: 5
 
-	"github.com/gorilla/websocket"
-)
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+  idempotency_ttl_seconds: 86400
 
-// Client represents a single active WebSocket connection
-type Client struct {
-	UserID   string
-	DeviceID string
-	SendChan chan *domain.WSMessage
-	Conn     *websocket.Conn
-	Hub      *Hub
-}
-
-// ReadPump handles reading messages from the WebSocket connection
-func (c *Client) ReadPump() {
-	defer func() {
-		c.Hub.UnregisterClient(c)
-		c.Conn.Close()
-	}()
-
-	c.Conn.SetReadLimit(int64(config.Cfg.Ws.MaxMessageSize))
-	pongWait := time.Duration(config.Cfg.Ws.PongWait) * time.Second
-	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
-
-	c.Conn.SetPongHandler(func(string) error {
-		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
-
-	for {
-		var msg domain.WSMessage
-		err := c.Conn.ReadJSON(&msg)
-
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("[ReadPump] error reading message from user %s: %v", c.UserID, err)
-			}
-			break
-		}
-
-		c.handleIncomingMessage(&msg)
-	}
-}
-
-func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
-	switch msg.Type {
-	case domain.WSEventHeartbeat:
-		log.Printf("Heartbeat received from user %s", c.UserID)
-		go func(c *Client) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			if err := c.Hub.presence.Heartbeat(ctx, c.UserID, c.DeviceID, config.Cfg.Server.NodeID, time.Duration(config.Cfg.Pres.TTL)*time.Second); err != nil {
-				log.Printf("Error sending heartbeat for user %s: %v", c.UserID, err)
-			}
-		}(c)
-	case domain.WSEventSendMessage:
-		brokerMessageType, ok := msg.Type.ToBrokerMessageType()
-		if !ok {
-			log.Printf("Unhandled message type: %s", msg.Type)
-			return
-		}
-
-		inboundEvent := contracts.InboundBrokerEvent{
-			Type:        brokerMessageType,
-			ClientMsgID: msg.ClientMsgID,
-			SenderID:    c.UserID,
-			DeviceID:    c.DeviceID,
-			GatewayNode: config.Cfg.Server.NodeID,
-			Payload:     msg.Payload,
-			SentAt:      time.Now().UTC(),
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-
-		if err := c.Hub.producer.Publish(ctx, inboundEvent); err != nil {
-			c.sendErrorMessage(msg.ClientMsgID, "Failed to send message")
-			return
-		}
-	default:
-		log.Printf("Unhandled message type: %s", msg.Type)
-	}
-}
-
-func (c *Client) sendErrorMessage(clientMsgID string, errorMsg string) {
-	errPayload, _ := json.Marshal(domain.FailedToSendPayload{Error: errorMsg})
-
-	errMsg := &domain.WSMessage{
-		Type:        domain.WSEventFailedToSend,
-		ClientMsgID: clientMsgID,
-		Payload:     errPayload,
-		Timestamp:   time.Now().UnixMilli(),
-	}
-	select {
-	case c.SendChan <- errMsg:
-	default:
-		log.Printf("[sendErrorMessage] SendChan full for user %s", c.UserID)
-	}
-}
-
-// WritePump handles pushing messages to the WebSocket connection
-func (c *Client) WritePump() {
-	pongWait := time.Duration(config.Cfg.Ws.PongWait) * time.Second
-	pingPeriod := (pongWait * 9) / 10
-	ticker := time.NewTicker(pingPeriod)
-	defer func() {
-		ticker.Stop()
-		c.Conn.Close()
-	}()
-
-	for {
-		select {
-		case <-ticker.C:
-			c.Conn.SetWriteDeadline(time.Now().Add(time.Duration(config.Cfg.Ws.WriteDeadline) * time.Second))
-			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("[WritePump] error sending ping to user %s: %v", c.UserID, err)
-				return
-			}
-		case msg, ok := <-c.SendChan:
-			c.Conn.SetWriteDeadline(time.Now().Add(time.Duration(config.Cfg.Ws.WriteDeadline) * time.Second))
-			if !ok {
-				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-			if err := c.Conn.WriteJSON(msg); err != nil {
-				log.Printf("[WritePump] error writing message to user %s: %v", c.UserID, err)
-				return
-			}
-		}
-	}
-}
+delivery:
+  mode: "grpc" # "grpc" or "broker"
+  grpc_port: 50051
+  grpc_service_suffix: ""
 </file>
 
 <file path="services/chat-engine/internal/usecase/chat_usecase.go">
@@ -6597,6 +8005,7 @@ import (
 	"chat-system/pkg/contracts"
 	"chat-worker/internal/dispatcher"
 	"chat-worker/internal/domain"
+	"chat-worker/internal/presence"
 	"chat-worker/internal/repository"
 	"context"
 	"encoding/json"
@@ -6611,18 +8020,27 @@ type ChatUsecase interface {
 type chatUsecase struct {
 	messageRepo     repository.MessageRepository
 	idempotencyRepo repository.IdempotencyRepository
+	presenceReader  presence.PresenceReader
 	dispatcher      dispatcher.EventDispatcher
+	dbTimeout       time.Duration
 }
 
 func NewChatUsecase(
 	messageRepo repository.MessageRepository,
 	idempotencyRepo repository.IdempotencyRepository,
+	presenceReader presence.PresenceReader,
 	dispatcher dispatcher.EventDispatcher,
+	dbTimeout time.Duration,
 ) ChatUsecase {
+	if dbTimeout <= 0 {
+		dbTimeout = 5 * time.Second
+	}
 	return &chatUsecase{
 		messageRepo:     messageRepo,
 		idempotencyRepo: idempotencyRepo,
+		presenceReader:  presenceReader,
 		dispatcher:      dispatcher,
+		dbTimeout:       dbTimeout,
 	}
 }
 
@@ -6653,6 +8071,7 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 			ClientMsgID:    event.ClientMsgID,
 			ConversationID: payload.ConversationID,
 			SenderID:       event.SenderID,
+			ReceiverID:     event.SenderID,
 			Type:           contracts.BrokerEventMessageSubmitted,
 			Timestamp:      now.UnixMilli(),
 		}
@@ -6670,8 +8089,8 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 		UpdatedAt:      now,
 	}
 
-	// 4. Giới hạn timeout khi ghi vào Cassandra (Defensive Concurrency)
-	dbCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// 4. Giới hạn timeout khi ghi vào Cassandra (Defensive Concurrency - Configurable)
+	dbCtx, cancel := context.WithTimeout(ctx, u.dbTimeout)
 	defer cancel()
 	if err := u.messageRepo.SaveMessage(dbCtx, msg); err != nil {
 		// Rollback/Release lock trên Redis nếu ghi DB thất bại để cho phép Client retry
@@ -6689,6 +8108,7 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 		ClientMsgID:    event.ClientMsgID,
 		ConversationID: msg.ConversationID,
 		SenderID:       msg.SenderID,
+		ReceiverID:     msg.SenderID,
 		Type:           contracts.BrokerEventMessageSubmitted,
 		Timestamp:      now.UnixMilli(),
 	}
@@ -6696,38 +8116,46 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 		// Log cảnh báo nhưng không làm fail cả luồng vì tin nhắn đã được lưu DB an toàn
 		log.Printf("[Usecase] WARN: Failed to send Sender ACK: %v", err)
 	}
+
+	// 6. OUTBOUND DELIVERY: Tra cứu Presence và chuyển tiếp tin nhắn tới người nhận
+	receiverID := payload.ReceiverID
+	if receiverID != "" && receiverID != event.SenderID {
+		routes, err := u.presenceReader.GetUserRoutes(ctx, receiverID)
+		if err != nil {
+			log.Printf("[Usecase] ERROR: Failed to query presence for receiver %s: %v", receiverID, err)
+		}
+
+		if len(routes) > 0 {
+			// Gom nhóm theo unique gatewayNode để tránh gửi trùng lặp nếu 1 node có nhiều device
+			dispatchedNodes := make(map[string]bool)
+			for _, gatewayNode := range routes {
+				if dispatchedNodes[gatewayNode] {
+					continue
+				}
+				dispatchedNodes[gatewayNode] = true
+
+				outboundMsg := contracts.OutboundBrokerEvent{
+					MessageID:      msg.ID,
+					ClientMsgID:    event.ClientMsgID,
+					ConversationID: msg.ConversationID,
+					SenderID:       msg.SenderID,
+					ReceiverID:     receiverID,
+					Content:        msg.Content,
+					Type:           contracts.BrokerEventMessageSubmitted,
+					Timestamp:      now.UnixMilli(),
+				}
+
+				if err := u.dispatcher.DispatchToGateway(ctx, gatewayNode, outboundMsg); err != nil {
+					log.Printf("[Usecase] ERROR: Failed to dispatch message to receiver gateway %s: %v", gatewayNode, err)
+				}
+			}
+		} else {
+			log.Printf("[Usecase] Receiver %s is offline. Skipping realtime push.", receiverID)
+		}
+	}
+
 	return nil
 }
-</file>
-
-<file path="services/ws-gateway/go.mod">
-module ws-gateway
-
-go 1.25.0
-
-require github.com/gorilla/websocket v1.5.3
-
-require (
-	github.com/golang-jwt/jwt v3.2.2+incompatible
-	github.com/nats-io/nats.go v1.53.1
-	github.com/redis/go-redis/v9 v9.22.0
-	google.golang.org/grpc v1.83.2
-	gopkg.in/yaml.v3 v3.0.1
-)
-
-require (
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
-	github.com/nats-io/nkeys v0.4.15 // indirect
-	github.com/nats-io/nuid v1.0.1 // indirect
-	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
-)
 </file>
 
 <file path="services/ws-gateway/cmd/main.go">
@@ -6835,6 +8263,261 @@ func main() {
 }
 </file>
 
+<file path="deployments/docker-compose.infra.yml">
+services:
+  # PostgreSQL - User & Auth Metadata
+  postgres:
+    image: postgres:16-alpine
+    container_name: chat-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: chat_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - chat-network
+
+  # Redis - Presence Service & Idempotency Cache
+  redis:
+    image: redis:7-alpine
+    container_name: chat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - chat-network
+
+  # Apache Cassandra - High-throughput Message Store
+  cassandra:
+    image: cassandra:5.0
+    container_name: chat-cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=chat_cluster
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - MAX_HEAP_SIZE=1024M
+      - HEAP_NEWSIZE=256M
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - chat-network
+
+
+  # NATS Server with JetStream enabled
+  nats:
+    image: nats:latest
+    container_name: chat-nats
+    ports:
+      - "4222:4222" # Client port
+      - "8222:8222" # HTTP Monitoring dashboard
+    command: ["-js", "-m", "8222"]
+    volumes:
+      - nats_data:/data
+    networks:
+      - chat-network
+
+  # ----------------------------------------------------
+  # UI & OBSERVABILITY TOOLS (Web-based)
+  # ----------------------------------------------------
+
+  # Redis Web UI (Truy cập: http://localhost:5540)
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: chat-redis-insight
+    ports:
+      - "5540:5540"
+    volumes:
+      - redis_insight_data:/data
+    networks:
+      - chat-network
+    depends_on:
+      - redis
+
+  # Cassandra Web UI (Truy cập: http://localhost:8088)
+  cassandra-web:
+    image: ipushc/cassandra-web:latest
+    container_name: chat-cassandra-web
+    ports:
+      - "8088:8083"
+    environment:
+      - CASSANDRA_HOST_1=cassandra
+      - CASSANDRA_PORT=9042
+    networks:
+      - chat-network
+    depends_on:
+      cassandra:
+        condition: service_healthy
+
+  # NATS Web Dashboard (Truy cập: http://localhost:8223)
+  nats-dashboard:
+    image: mdawar/nats-dashboard:latest
+    container_name: chat-nats-dashboard
+    ports:
+      - "8223:80"
+    networks:
+      - chat-network
+    depends_on:
+      - nats
+
+networks:
+  chat-network:
+    name: chat-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  cassandra_data:
+  nats_data:
+  redis_insight_data:
+</file>
+
+<file path="services/chat-engine/internal/config/config.go">
+package config
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/caarlos0/env/v11"
+	"gopkg.in/yaml.v3"
+)
+
+type Config struct {
+	Worker   WorkerConfig   `yaml:"worker"`
+	NATS     NATSConfig     `yaml:"nats"`
+	Database DatabaseConfig `yaml:"database"`
+	Redis    RedisConfig    `yaml:"redis"`
+	Delivery DeliveryConfig `yaml:"delivery"`
+}
+
+type WorkerConfig struct {
+	ID string `yaml:"id" env:"WORKER_ID" envDefault:"chat-worker-01"`
+}
+
+type NATSConfig struct {
+	URL                   string `yaml:"url" env:"NATS_URL" envDefault:"nats://localhost:4222"`
+	InboundSubject        string `yaml:"inbound_subject" env:"NATS_INBOUND_SUBJECT" envDefault:"chat.inbound"`
+	InboundStream         string `yaml:"inbound_stream" env:"NATS_INBOUND_STREAM" envDefault:"CHAT_INBOUND"`
+	InboundConsumerGroup  string `yaml:"inbound_consumer_group" env:"NATS_INBOUND_CONSUMER_GROUP" envDefault:"chat_workers"`
+	OutboundSubjectPrefix string `yaml:"outbound_subject_prefix" env:"NATS_OUTBOUND_SUBJECT_PREFIX" envDefault:"chat.gateway."`
+	NotificationSubject   string `yaml:"notification_subject" env:"NATS_NOTIFICATION_SUBJECT" envDefault:"chat.notification"`
+}
+
+type DatabaseConfig struct {
+	Hosts          []string `yaml:"hosts" env:"CASSANDRA_HOSTS" envSeparator:","`
+	Keyspace       string   `yaml:"keyspace" env:"CASSANDRA_KEYSPACE" envDefault:"chat_system"`
+	Table          string   `yaml:"table" env:"CASSANDRA_TABLE" envDefault:"messages"`
+	TimeoutSeconds int      `yaml:"timeout_seconds" env:"CASSANDRA_TIMEOUT_SECONDS" envDefault:"5"`
+}
+
+type RedisConfig struct {
+	Addr                  string `yaml:"addr" env:"REDIS_ADDR" envDefault:"localhost:6379"`
+	Password              string `yaml:"password" env:"REDIS_PASSWORD"`
+	DB                    int    `yaml:"db" env:"REDIS_DB" envDefault:"0"`
+	IdempotencyTTLSeconds int    `yaml:"idempotency_ttl_seconds" env:"REDIS_IDEMPOTENCY_TTL" envDefault:"86400"`
+}
+
+type DeliveryConfig struct {
+	Mode              string `yaml:"mode" env:"DELIVERY_MODE" envDefault:"grpc"` // "grpc" or "broker"
+	GRPCPort          int    `yaml:"grpc_port" env:"GRPC_PORT" envDefault:"50051"`
+	GRPCServiceSuffix string `yaml:"grpc_service_suffix" env:"GRPC_SERVICE_SUFFIX" envDefault:""`
+}
+
+var Cfg *Config
+
+func LoadConfig(path string) (*Config, error) {
+	var cfg Config
+
+	// 1. Đọc file YAML nếu có (làm baseline/default)
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			if err := yaml.Unmarshal(data, &cfg); err != nil {
+				return nil, fmt.Errorf("không thể parse file yaml config: %w", err)
+			}
+		}
+	}
+
+	// 2. Tự động đọc và ghi đè từ Environment Variables (Type-Safe qua caarlos0/env)
+	if err := env.Parse(&cfg); err != nil {
+		return nil, fmt.Errorf("không thể parse biến môi trường: %w", err)
+	}
+
+	Cfg = &cfg
+
+	if err := Cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("cấu hình không hợp lệ: %w", err)
+	}
+
+	return Cfg, nil
+}
+
+func (c *Config) Validate() error {
+	if c.Worker.ID == "" {
+		return fmt.Errorf("worker.id không được để trống")
+	}
+	if c.NATS.URL == "" {
+		return fmt.Errorf("nats.url không được để trống")
+	}
+	if c.NATS.InboundSubject == "" {
+		return fmt.Errorf("nats.inbound_subject không được để trống")
+	}
+	if len(c.Database.Hosts) == 0 {
+		return fmt.Errorf("database.hosts không được để trống")
+	}
+	if c.Redis.Addr == "" {
+		return fmt.Errorf("redis.addr không được để trống")
+	}
+	return nil
+}
+</file>
+
+<file path="services/ws-gateway/go.mod">
+module ws-gateway
+
+go 1.25.0
+
+require github.com/gorilla/websocket v1.5.3
+
+require (
+	github.com/caarlos0/env/v11 v11.4.1
+	github.com/golang-jwt/jwt v3.2.2+incompatible
+	github.com/nats-io/nats.go v1.53.1
+	github.com/redis/go-redis/v9 v9.22.0
+	google.golang.org/grpc v1.83.2
+	gopkg.in/yaml.v3 v3.0.1
+)
+
+require (
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/nats-io/nkeys v0.4.15 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
+)
+</file>
+
 <file path="services/ws-gateway/internal/config/config.go">
 package config
 
@@ -6842,6 +8525,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/caarlos0/env/v11"
 	"gopkg.in/yaml.v3"
 )
 
@@ -6856,251 +8540,83 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port         int    `yaml:"port"`
-	NodeID       string `yaml:"node_id"`
-	DeliveryMode string `yaml:"delivery_mode"` // "grpc" or "broker"
+	Port         int    `yaml:"port" env:"WS_PORT" envDefault:"8080"`
+	NodeID       string `yaml:"node_id" env:"SERVER_NODE_ID" envDefault:"gateway-node-01"`
+	DeliveryMode string `yaml:"delivery_mode" env:"DELIVERY_MODE" envDefault:"grpc"` // "grpc" or "broker"
 }
 
 type RedisConfig struct {
-	Addr     string `yaml:"addr"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
+	Addr     string `yaml:"addr" env:"REDIS_ADDR" envDefault:"localhost:6379"`
+	Password string `yaml:"password" env:"REDIS_PASSWORD"`
+	DB       int    `yaml:"db" env:"REDIS_DB" envDefault:"0"`
 }
 
 type NATSConfig struct {
-	URL                   string `yaml:"url"`
-	InboundSubject        string `yaml:"inbound_subject"`
-	OutboundSubjectPrefix string `yaml:"outbound_subject_prefix"`
+	URL                   string `yaml:"url" env:"NATS_URL" envDefault:"nats://localhost:4222"`
+	InboundSubject        string `yaml:"inbound_subject" env:"NATS_INBOUND_SUBJECT" envDefault:"chat.inbound"`
+	OutboundSubjectPrefix string `yaml:"outbound_subject_prefix" env:"NATS_OUTBOUND_SUBJECT_PREFIX" envDefault:"chat.gateway."`
 }
 
 type JwtConfig struct {
-	AccessTokenSecret string `yaml:"access_token_secret"`
-	AccessTokenExpiry int64  `yaml:"access_token_expiry"`
+	AccessTokenSecret string `yaml:"access_token_secret" env:"JWT_ACCESS_TOKEN_SECRET" envDefault:"secret"`
+	AccessTokenExpiry int64  `yaml:"access_token_expiry" env:"JWT_ACCESS_TOKEN_EXPIRY" envDefault:"3600"`
 }
 
 type WebSocketConfig struct {
-	PongWait       int64 `yaml:"pong_wait"`
-	MaxMessageSize int   `yaml:"max_message_size"`
-	WriteDeadline  int64 `yaml:"write_deadline"`
+	PongWait       int64 `yaml:"pong_wait" env:"WS_PONG_WAIT" envDefault:"60"`
+	MaxMessageSize int   `yaml:"max_message_size" env:"WS_MAX_MESSAGE_SIZE" envDefault:"4096"`
+	WriteDeadline  int64 `yaml:"write_deadline" env:"WS_WRITE_DEADLINE" envDefault:"10"`
 }
 
 type PresenceConfig struct {
-	TTL int64 `yaml:"ttl"`
+	TTL int64 `yaml:"ttl" env:"PRESENCE_TTL" envDefault:"60"`
 }
 
 type GRPCConfig struct {
-	Port           int    `yaml:"port"`
-	AdvertisedAddr string `yaml:"advertised_addr"`
+	Port           int    `yaml:"port" env:"GRPC_PORT" envDefault:"50051"`
+	AdvertisedAddr string `yaml:"advertised_addr" env:"GRPC_ADVERTISED_ADDR" envDefault:"localhost:50051"`
 }
 
 var Cfg *Config
 
 func LoadConfig(path string) (*Config, error) {
-	// Set default values
-	config := &Config{
-		Server: ServerConfig{
-			Port:         8080,
-			NodeID:       "gateway-node-01",
-			DeliveryMode: "grpc",
-		},
-		Redis: RedisConfig{
-			Addr: "localhost:6379",
-			DB:   0,
-		},
-		NATS: NATSConfig{
-			URL:                   "nats://localhost:4222",
-			InboundSubject:        "chat.inbound",
-			OutboundSubjectPrefix: "chat.gateway.",
-		},
-		GRPC: GRPCConfig{
-			Port:           50051,
-			AdvertisedAddr: "localhost:50051",
-		},
-		Jwt: JwtConfig{
-			AccessTokenSecret: "secret",
-			AccessTokenExpiry: 3600,
-		},
-		Pres: PresenceConfig{
-			TTL: 60,
-		},
-	}
+	var cfg Config
 
+	// 1. Đọc file YAML nếu có (làm baseline/default)
 	if path != "" {
 		data, err := os.ReadFile(path)
 		if err == nil {
-			if err := yaml.Unmarshal(data, config); err != nil {
-				return nil, fmt.Errorf("failed to parse yaml config: %w", err)
+			if err := yaml.Unmarshal(data, &cfg); err != nil {
+				return nil, fmt.Errorf("không thể parse file yaml config: %w", err)
 			}
 		}
 	}
 
-	Cfg = config
+	// 2. Tự động đọc và ghi đè từ Environment Variables (Type-Safe qua caarlos0/env)
+	if err := env.Parse(&cfg); err != nil {
+		return nil, fmt.Errorf("không thể parse biến môi trường: %w", err)
+	}
+
+	Cfg = &cfg
+
+	if err := Cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("cấu hình không hợp lệ: %w", err)
+	}
+
 	return Cfg, nil
 }
-</file>
 
-<file path="services/chat-engine/cmd/main.go">
-package main
-
-import (
-	"context"
-	"log"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
-
-	natsclient "chat-system/pkg/nats"
-	"chat-worker/internal/config"
-	"chat-worker/internal/consumer"
-	"chat-worker/internal/dispatcher"
-	"chat-worker/internal/migrator"
-	"chat-worker/internal/repository"
-	"chat-worker/internal/usecase"
-
-	"github.com/redis/go-redis/v9"
-)
-
-func main() {
-	cfg, err := config.LoadConfig("configs/config.yaml")
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+func (c *Config) Validate() error {
+	if c.NATS.URL == "" {
+		return fmt.Errorf("nats.url không được để trống")
 	}
-
-	log.Printf("Starting Chat Engine worker: %s", cfg.Worker.ID)
-
-	// Run Database Schema Migrations
-	if err := migrator.Run(&cfg.Database); err != nil {
-		log.Fatalf("Database migration failed: %v", err)
+	if c.Redis.Addr == "" {
+		return fmt.Errorf("redis.addr không được để trống")
 	}
-
-	// Connect to NATS Broker
-	nc, err := natsclient.Connect(cfg.NATS.URL, "chat-worker-"+cfg.Worker.ID)
-	if err != nil {
-		log.Fatalf("Failed to connect to NATS: %v", err)
+	if c.Jwt.AccessTokenSecret == "" {
+		return fmt.Errorf("jwt.access_token_secret không được để trống")
 	}
-	defer nc.Close()
-
-	// Initialize Cassandra Database Session
-	dbSession, err := repository.NewCassandraSession(&cfg.Database)
-	if err != nil {
-		log.Fatalf("Failed to initialize Cassandra session: %v", err)
-	}
-	defer dbSession.Close()
-
-	// Initialize Redis Client
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     cfg.Redis.Addr,
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
-	})
-	defer redisClient.Close()
-
-	// Initialize Repositories & Dispatcher
-	idempotencyTTL := time.Duration(cfg.Redis.IdempotencyTTLSeconds) * time.Second
-	idempotencyRepo := repository.NewRedisIdempotencyRepository(redisClient, idempotencyTTL)
-	messageRepo := repository.NewCassandraMessageRepository(dbSession, cfg.Database.Table)
-	eventDispatcher := dispatcher.NewEventDispatcher(nc)
-
-	// Initialize Usecase
-	chatUsecase := usecase.NewChatUsecase(messageRepo, idempotencyRepo, eventDispatcher)
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	// Initialize Inbound Consumer with worker queue group
-	inboundConsumer := consumer.NewConsumer(
-		nc,
-		cfg.NATS.InboundSubject,
-		cfg.NATS.InboundConsumerGroup,
-		chatUsecase,
-	)
-
-	if err := inboundConsumer.Start(ctx); err != nil {
-		log.Fatalf("Failed to start inbound consumer: %v", err)
-	}
-
-	log.Printf("Consumer started on subject '%s' with queue group '%s'",
-		cfg.NATS.InboundSubject, cfg.NATS.InboundConsumerGroup)
-
-	// Wait for termination signal
-	<-ctx.Done()
-
-	log.Println("Shutting down Chat Engine...")
-	if err := inboundConsumer.Stop(); err != nil {
-		log.Printf("Error stopping consumer: %v", err)
-	}
-
-	log.Println("Chat Engine exited cleanly")
-}
-</file>
-
-<file path="services/ws-gateway/internal/domain/event.go">
-package domain
-
-import (
-	"encoding/json"
-
-	"chat-system/pkg/contracts"
-)
-
-// WSEventType represents the type of WebSocket event
-type WSEventType string
-
-const (
-	WSEventSendMessage  WSEventType = "SEND_MESSAGE"
-	WSEventFailedToSend WSEventType = "FAILED_TO_SEND"
-	WSEventHeartbeat    WSEventType = "HEARTBEAT"
-)
-
-func (t WSEventType) ToBrokerMessageType() (contracts.BrokerMessageType, bool) {
-	switch t {
-	case WSEventSendMessage:
-		return contracts.BrokerEventMessageSubmitted, true
-	default:
-		return "", false
-	}
-}
-
-// WSMessage represents the payload exchanged with client over WebSocket
-type WSMessage struct {
-	Type        WSEventType     `json:"type"`
-	ClientMsgID string          `json:"client_msg_id,omitempty"`
-	Timestamp   int64           `json:"timestamp,omitempty"`
-	Payload     json.RawMessage `json:"payload,omitempty"`
-}
-
-type SendMessagePayload struct {
-	ConversationID string `json:"conversation_id"`
-	Content        string `json:"content"`
-}
-
-type FailedToSendPayload struct {
-	Error string `json:"error"`
-}
-
-type MessageDeliveryPayload struct {
-	MessageID      string `json:"message_id"`
-	ClientMsgID    string `json:"client_msg_id,omitempty"`
-	ConversationID string `json:"conversation_id"`
-	SenderID       string `json:"sender_id"`
-	ReceiverID     string `json:"receiver_id,omitempty"`
-	Content        string                    `json:"content"`
-	Type           contracts.BrokerMessageType `json:"type"`
-	Timestamp      int64                     `json:"timestamp"`
-}
-
-func (msDelivery *MessageDeliveryPayload) NewWSMessageFromDelivery() (*WSMessage, error) {
-	bytes, err := json.Marshal(msDelivery)
-	if err != nil {
-		return nil, err
-	}
-	return &WSMessage{
-		Type:        WSEventSendMessage,
-		ClientMsgID: msDelivery.ClientMsgID,
-		Timestamp:   msDelivery.Timestamp,
-		Payload:     bytes,
-	}, nil
+	return nil
 }
 </file>
 
@@ -7115,7 +8631,7 @@ import (
 
 	"chat-system/pkg/contracts"
 	"ws-gateway/internal/config"
-	"ws-gateway/internal/domain"
+	"ws-gateway/internal/payload"
 )
 
 type PresenceService interface {
@@ -7196,7 +8712,7 @@ func (h *Hub) Run() {
 }
 
 // SendToUser pushes a message to all active devices of a user connected to this node
-func (h *Hub) SendToUser(userID string, msg *domain.WSMessage) {
+func (h *Hub) SendToUser(userID string, msg *payload.WSMessage) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -7218,6 +8734,73 @@ func (h *Hub) RegisterClient(client *Client) {
 func (h *Hub) UnregisterClient(client *Client) {
 	h.unregister <- client
 }
+</file>
+
+<file path="Makefile">
+CLUSTER ?= chat-cluster
+
+# --- Infrastructure (Host) ---
+infra-up:
+	docker compose -f deployments/docker-compose.infra.yml up -d
+
+infra-down:
+	docker compose -f deployments/docker-compose.infra.yml down
+
+infra-logs:
+	docker compose -f deployments/docker-compose.infra.yml logs -f
+
+# --- Kind Cluster ---
+kind-up:
+	kind create cluster --name $(CLUSTER) --config deployments/kind-config.yaml
+
+kind-down:
+	kind delete cluster --name $(CLUSTER)
+
+# --- Build & Load Images to Kind ---
+build:
+	docker build -t chat-system/ws-gateway:latest -f services/ws-gateway/Dockerfile .
+	docker build -t chat-system/chat-engine:latest -f services/chat-engine/Dockerfile .
+	docker build -t chat-system/api-service:latest services/api-service
+
+load:
+	kind load docker-image chat-system/ws-gateway:latest --name $(CLUSTER)
+	kind load docker-image chat-system/chat-engine:latest --name $(CLUSTER)
+	kind load docker-image chat-system/api-service:latest --name $(CLUSTER)
+
+build-load: build load
+
+# --- Kubernetes Deploy & Ops ---
+k8s-deploy:
+	kubectl apply -f deployments/k8s/
+
+k8s-delete:
+	kubectl delete -f deployments/k8s/
+
+k8s-restart:
+	kubectl rollout restart statefulset/ws-gateway -n chat-system
+	kubectl rollout restart deployment/chat-engine -n chat-system
+	kubectl rollout restart deployment/api-service -n chat-system
+	kubectl rollout restart deployment/nginx-gateway -n chat-system
+
+k8s-status:
+	kubectl get pods,svc,statefulset -n chat-system -o wide
+
+# --- K8s Logs ---
+logs-gw:
+	kubectl logs -l app=ws-gateway -n chat-system -f
+
+logs-engine:
+	kubectl logs -l app=chat-engine -n chat-system -f
+
+logs-api:
+	kubectl logs -l app=api-service -n chat-system -f
+
+# --- Client Simulator ---
+sim:
+	cd services/client-simulator && go run cmd/main.go -bots 10 -convs 3 -interval 1s
+
+sim-stress:
+	cd services/client-simulator && go run cmd/main.go -bots 50 -convs 5 -interval 200ms
 </file>
 
 </files>

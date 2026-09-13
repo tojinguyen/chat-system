@@ -70,6 +70,7 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 			ClientMsgID:    event.ClientMsgID,
 			ConversationID: payload.ConversationID,
 			SenderID:       event.SenderID,
+			ReceiverID:     event.SenderID,
 			Type:           contracts.BrokerEventMessageSubmitted,
 			Timestamp:      now.UnixMilli(),
 		}
@@ -106,6 +107,7 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 		ClientMsgID:    event.ClientMsgID,
 		ConversationID: msg.ConversationID,
 		SenderID:       msg.SenderID,
+		ReceiverID:     msg.SenderID,
 		Type:           contracts.BrokerEventMessageSubmitted,
 		Timestamp:      now.UnixMilli(),
 	}

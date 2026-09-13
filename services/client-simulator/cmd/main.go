@@ -37,9 +37,12 @@ func main() {
 	defer cancel()
 
 	if *testDuration > 0 {
+		log.Printf("⏱️ Chế độ: Chạy trong %s rồi tự động dừng.", *testDuration)
 		var cancelTimer context.CancelFunc
 		ctx, cancelTimer = context.WithTimeout(ctx, *testDuration)
 		defer cancelTimer()
+	} else {
+		log.Println("♾️ Chế độ: Chạy liên tục vô hạn (nhấn Ctrl+C để dừng và xem báo cáo tổng kết).")
 	}
 
 	authClient := auth.NewAuthClient(*apiURL)

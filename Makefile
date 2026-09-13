@@ -55,3 +55,11 @@ logs-engine:
 
 logs-api:
 	kubectl logs -l app=api-service -n chat-system -f
+
+# --- Client Simulator ---
+sim:
+	cd services/client-simulator && go run cmd/main.go -bots 10 -convs 3 -interval 1s
+
+sim-stress:
+	cd services/client-simulator && go run cmd/main.go -bots 50 -convs 5 -interval 200ms
+

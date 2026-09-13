@@ -46,7 +46,11 @@ func (n *NATSListener) Start(ctx context.Context) error {
 			return err
 		}
 
-		n.hub.SendToUser(event.ReceiverID, wsMsg)
+		targetUser := event.ReceiverID
+		if targetUser == "" {
+			targetUser = event.SenderID
+		}
+		n.hub.SendToUser(targetUser, wsMsg)
 		return nil
 	})
 

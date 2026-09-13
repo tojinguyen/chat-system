@@ -101,6 +101,14 @@ func (b *Bot) Stop() {
 func (b *Bot) readPump() {
 	defer b.Stop()
 
+	type innerPayload struct {
+		MessageID   string `json:"message_id"`
+		ClientMsgID string `json:"client_msg_id"`
+		SenderID    string `json:"sender_id"`
+		ReceiverID  string `json:"receiver_id"`
+		Type        string `json:"type"`
+	}
+
 	for {
 		_, data, err := b.conn.ReadMessage()
 		if err != nil {
@@ -112,17 +120,30 @@ func (b *Bot) readPump() {
 			continue
 		}
 
-		switch env.Type {
-		case "MESSAGE_SUBMITTED":
-			// Sender ACK nhận được từ server
-			if val, ok := b.inFlight.LoadAndDelete(env.ClientMsgID); ok {
+		var inner innerPayload
+		if len(env.Payload) > 0 {
+			_ = json.Unmarshal(env.Payload, &inner)
+		}
+
+		msgID := env.ClientMsgID
+		if msgID == "" {
+			msgID = inner.ClientMsgID
+		}
+
+		// 1. Kiểm tra xem có phải Sender ACK của tin nhắn do chính Bot này gửi đi không
+		if msgID != "" {
+			if val, ok := b.inFlight.LoadAndDelete(msgID); ok {
 				sentAt := val.(time.Time)
 				latency := time.Since(sentAt)
 				b.Tracker.RecordAck(latency)
+				continue
 			}
+		}
 
-		case "SEND_MESSAGE":
-			// Tin nhắn realtime được chuyển tiếp từ người khác tới
+		// 2. Nếu không phải tin nhắn do bot này gửi -> Tin nhắn nhận được từ bạn chat
+		if inner.SenderID != "" && inner.SenderID != b.Session.UserID {
+			b.Tracker.RecordDelivered()
+		} else if env.Type == "SEND_MESSAGE" && msgID == "" {
 			b.Tracker.RecordDelivered()
 		}
 	}
