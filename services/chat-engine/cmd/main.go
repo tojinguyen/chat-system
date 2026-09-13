@@ -61,7 +61,8 @@ func main() {
 	eventDispatcher := dispatcher.NewEventDispatcher(nc)
 
 	// Initialize Usecase
-	chatUsecase := usecase.NewChatUsecase(messageRepo, idempotencyRepo, eventDispatcher)
+	dbTimeout := time.Duration(cfg.Database.TimeoutSeconds) * time.Second
+	chatUsecase := usecase.NewChatUsecase(messageRepo, idempotencyRepo, eventDispatcher, dbTimeout)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

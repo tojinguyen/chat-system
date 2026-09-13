@@ -19,17 +19,23 @@ type chatUsecase struct {
 	messageRepo     repository.MessageRepository
 	idempotencyRepo repository.IdempotencyRepository
 	dispatcher      dispatcher.EventDispatcher
+	dbTimeout       time.Duration
 }
 
 func NewChatUsecase(
 	messageRepo repository.MessageRepository,
 	idempotencyRepo repository.IdempotencyRepository,
 	dispatcher dispatcher.EventDispatcher,
+	dbTimeout time.Duration,
 ) ChatUsecase {
+	if dbTimeout <= 0 {
+		dbTimeout = 5 * time.Second
+	}
 	return &chatUsecase{
 		messageRepo:     messageRepo,
 		idempotencyRepo: idempotencyRepo,
 		dispatcher:      dispatcher,
+		dbTimeout:       dbTimeout,
 	}
 }
 
@@ -77,8 +83,8 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 		UpdatedAt:      now,
 	}
 
-	// 4. Giới hạn timeout khi ghi vào Cassandra (Defensive Concurrency)
-	dbCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// 4. Giới hạn timeout khi ghi vào Cassandra (Defensive Concurrency - Configurable)
+	dbCtx, cancel := context.WithTimeout(ctx, u.dbTimeout)
 	defer cancel()
 	if err := u.messageRepo.SaveMessage(dbCtx, msg); err != nil {
 		// Rollback/Release lock trên Redis nếu ghi DB thất bại để cho phép Client retry

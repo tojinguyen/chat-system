@@ -29,9 +29,10 @@ type NATSConfig struct {
 }
 
 type DatabaseConfig struct {
-	Hosts    []string `yaml:"hosts" env:"CASSANDRA_HOSTS" envSeparator:","`
-	Keyspace string   `yaml:"keyspace" env:"CASSANDRA_KEYSPACE" envDefault:"chat_system"`
-	Table    string   `yaml:"table" env:"CASSANDRA_TABLE" envDefault:"messages"`
+	Hosts          []string `yaml:"hosts" env:"CASSANDRA_HOSTS" envSeparator:","`
+	Keyspace       string   `yaml:"keyspace" env:"CASSANDRA_KEYSPACE" envDefault:"chat_system"`
+	Table          string   `yaml:"table" env:"CASSANDRA_TABLE" envDefault:"messages"`
+	TimeoutSeconds int      `yaml:"timeout_seconds" env:"CASSANDRA_TIMEOUT_SECONDS" envDefault:"5"`
 }
 
 type RedisConfig struct {
