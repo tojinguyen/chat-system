@@ -64,6 +64,49 @@ services:
     networks:
       - chat-network
 
+  # ----------------------------------------------------
+  # UI & OBSERVABILITY TOOLS (Web-based)
+  # ----------------------------------------------------
+
+  # Redis Web UI (Truy cập: http://localhost:5540)
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: chat-redis-insight
+    ports:
+      - "5540:5540"
+    volumes:
+      - redis_insight_data:/data
+    networks:
+      - chat-network
+    depends_on:
+      - redis
+
+  # Cassandra Web UI (Truy cập: http://localhost:8088)
+  cassandra-web:
+    image: ipushc/cassandra-web:latest
+    container_name: chat-cassandra-web
+    ports:
+      - "8088:8083"
+    environment:
+      - CASSANDRA_HOST_1=cassandra
+      - CASSANDRA_PORT=9042
+    networks:
+      - chat-network
+    depends_on:
+      cassandra:
+        condition: service_healthy
+
+  # NATS Web Dashboard (Truy cập: http://localhost:8223)
+  nats-dashboard:
+    image: mdawar/nats-dashboard:latest
+    container_name: chat-nats-dashboard
+    ports:
+      - "8223:80"
+    networks:
+      - chat-network
+    depends_on:
+      - nats
+
 networks:
   chat-network:
     name: chat-network
@@ -74,3 +117,4 @@ volumes:
   redis_data:
   cassandra_data:
   nats_data:
+  redis_insight_data:
