@@ -8,7 +8,7 @@ import (
 
 	"chat-system/pkg/contracts"
 	"ws-gateway/internal/config"
-	"ws-gateway/internal/domain"
+	"ws-gateway/internal/payload"
 
 	"github.com/gorilla/websocket"
 )
@@ -17,7 +17,7 @@ import (
 type Client struct {
 	UserID   string
 	DeviceID string
-	SendChan chan *domain.WSMessage
+	SendChan chan *payload.WSMessage
 	Conn     *websocket.Conn
 	Hub      *Hub
 }
@@ -39,7 +39,7 @@ func (c *Client) ReadPump() {
 	})
 
 	for {
-		var msg domain.WSMessage
+		var msg payload.WSMessage
 		err := c.Conn.ReadJSON(&msg)
 
 		if err != nil {
@@ -53,9 +53,9 @@ func (c *Client) ReadPump() {
 	}
 }
 
-func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
+func (c *Client) handleIncomingMessage(msg *payload.WSMessage) {
 	switch msg.Type {
-	case domain.WSEventHeartbeat:
+	case payload.WSEventHeartbeat:
 		log.Printf("Heartbeat received from user %s", c.UserID)
 		go func(c *Client) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -65,7 +65,7 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 				log.Printf("Error sending heartbeat for user %s: %v", c.UserID, err)
 			}
 		}(c)
-	case domain.WSEventSendMessage:
+	case payload.WSEventSendMessage:
 		brokerMessageType, ok := msg.Type.ToBrokerMessageType()
 		if !ok {
 			log.Printf("Unhandled message type: %s", msg.Type)
@@ -94,10 +94,10 @@ func (c *Client) handleIncomingMessage(msg *domain.WSMessage) {
 }
 
 func (c *Client) sendErrorMessage(clientMsgID string, errorMsg string) {
-	errPayload, _ := json.Marshal(domain.FailedToSendPayload{Error: errorMsg})
+	errPayload, _ := json.Marshal(payload.FailedToSendPayload{Error: errorMsg})
 
-	errMsg := &domain.WSMessage{
-		Type:        domain.WSEventFailedToSend,
+	errMsg := &payload.WSMessage{
+		Type:        payload.WSEventFailedToSend,
 		ClientMsgID: clientMsgID,
 		Payload:     errPayload,
 		Timestamp:   time.Now().UnixMilli(),

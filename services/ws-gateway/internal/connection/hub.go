@@ -8,7 +8,7 @@ import (
 
 	"chat-system/pkg/contracts"
 	"ws-gateway/internal/config"
-	"ws-gateway/internal/domain"
+	"ws-gateway/internal/payload"
 )
 
 type PresenceService interface {
@@ -89,7 +89,7 @@ func (h *Hub) Run() {
 }
 
 // SendToUser pushes a message to all active devices of a user connected to this node
-func (h *Hub) SendToUser(userID string, msg *domain.WSMessage) {
+func (h *Hub) SendToUser(userID string, msg *payload.WSMessage) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 

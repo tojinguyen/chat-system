@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"ws-gateway/internal/connection"
-	"ws-gateway/internal/domain"
+	"ws-gateway/internal/payload"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/websocket"
@@ -68,7 +68,7 @@ func HandleWebSocket(hub *connection.Hub, jwtSecret string) http.HandlerFunc {
 			UserID:   userID,
 			DeviceID: deviceID,
 			Hub:      hub,
-			SendChan: make(chan *domain.WSMessage, 256),
+			SendChan: make(chan *payload.WSMessage, 256),
 			Conn:     conn,
 		}
 

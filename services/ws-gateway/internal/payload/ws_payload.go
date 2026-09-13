@@ -1,4 +1,4 @@
-package domain
+package payload
 
 import (
 	"encoding/json"
@@ -24,7 +24,7 @@ func (t WSEventType) ToBrokerMessageType() (contracts.BrokerMessageType, bool) {
 	}
 }
 
-// WSMessage represents the payload exchanged with client over WebSocket
+// WSMessage represents the generic envelope exchanged with client over WebSocket
 type WSMessage struct {
 	Type        WSEventType     `json:"type"`
 	ClientMsgID string          `json:"client_msg_id,omitempty"`
@@ -34,6 +34,7 @@ type WSMessage struct {
 
 type SendMessagePayload struct {
 	ConversationID string `json:"conversation_id"`
+	ReceiverID     string `json:"receiver_id,omitempty"`
 	Content        string `json:"content"`
 }
 
@@ -42,14 +43,14 @@ type FailedToSendPayload struct {
 }
 
 type MessageDeliveryPayload struct {
-	MessageID      string `json:"message_id"`
-	ClientMsgID    string `json:"client_msg_id,omitempty"`
-	ConversationID string `json:"conversation_id"`
-	SenderID       string `json:"sender_id"`
-	ReceiverID     string `json:"receiver_id,omitempty"`
-	Content        string                    `json:"content"`
+	MessageID      string                      `json:"message_id"`
+	ClientMsgID    string                      `json:"client_msg_id,omitempty"`
+	ConversationID string                      `json:"conversation_id"`
+	SenderID       string                      `json:"sender_id"`
+	ReceiverID     string                      `json:"receiver_id,omitempty"`
+	Content        string                      `json:"content"`
 	Type           contracts.BrokerMessageType `json:"type"`
-	Timestamp      int64                     `json:"timestamp"`
+	Timestamp      int64                       `json:"timestamp"`
 }
 
 func (msDelivery *MessageDeliveryPayload) NewWSMessageFromDelivery() (*WSMessage, error) {
