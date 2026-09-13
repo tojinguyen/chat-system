@@ -60,7 +60,7 @@ metadata:
   name: api-service
   namespace: chat-system
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: api-service
   ports:

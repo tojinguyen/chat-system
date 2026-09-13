@@ -41,6 +41,7 @@ k8s-restart:
 	kubectl rollout restart statefulset/ws-gateway -n chat-system
 	kubectl rollout restart deployment/chat-engine -n chat-system
 	kubectl rollout restart deployment/api-service -n chat-system
+	kubectl rollout restart deployment/nginx-gateway -n chat-system
 
 k8s-status:
 	kubectl get pods,svc,statefulset -n chat-system -o wide
