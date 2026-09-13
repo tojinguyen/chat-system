@@ -48,19 +48,19 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Initialize Outbound Delivery Listener based on configured Mode
-	var listener delivery.DeliveryListener
-	switch cfg.Server.DeliveryMode {
-	case "grpc":
-		listener = delivery.NewGRPCListener(cfg.GRPC.Port, hub)
-	case "broker":
-		listener = delivery.NewNATSListener(nc, cfg.Server.NodeID, hub)
-	default:
-		log.Fatalf("Unsupported delivery mode '%s'. Must be 'grpc' or 'broker'", cfg.Server.DeliveryMode)
+	// 1. Luôn lắng nghe NATS Subject riêng của Node Gateway (chat.gateway.{node_id}) để nhận Sender ACK
+	natsListener := delivery.NewNATSListener(nc, cfg.Server.NodeID, hub)
+	if err := natsListener.Start(ctx); err != nil {
+		log.Fatalf("Failed to start NATS delivery listener: %v", err)
 	}
 
-	if err := listener.Start(ctx); err != nil {
-		log.Fatalf("Failed to start %s delivery listener: %v", cfg.Server.DeliveryMode, err)
+	// 2. Nếu chạy mode gRPC, khởi động thêm gRPC Server để nhận Outbound Delivery từ chat-engine
+	var grpcListener delivery.DeliveryListener
+	if cfg.Server.DeliveryMode == "grpc" {
+		grpcListener = delivery.NewGRPCListener(cfg.GRPC.Port, hub)
+		if err := grpcListener.Start(ctx); err != nil {
+			log.Fatalf("Failed to start gRPC delivery listener: %v", err)
+		}
 	}
 
 	// HTTP / WebSocket route
@@ -90,8 +90,9 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := listener.Stop(shutdownCtx); err != nil {
-		log.Printf("Error stopping delivery listener: %v", err)
+	_ = natsListener.Stop(shutdownCtx)
+	if grpcListener != nil {
+		_ = grpcListener.Stop(shutdownCtx)
 	}
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
