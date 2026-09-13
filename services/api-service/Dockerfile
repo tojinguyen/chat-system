@@ -12,13 +12,13 @@ COPY . .
 
 RUN npm run build
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 RUN npm prune --production
 
 FROM node:22-alpine AS runner
 WORKDIR /usr/src/app
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 USER node
 

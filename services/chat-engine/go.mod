@@ -3,11 +3,12 @@ module chat-worker
 go 1.25.0
 
 require (
+	github.com/caarlos0/env/v11 v11.4.1
 	github.com/gocql/gocql v1.7.0
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/nats-io/nats.go v1.53.1
 	github.com/redis/go-redis/v9 v9.22.0
-	go.yaml.in/yaml/v2 v2.4.4
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

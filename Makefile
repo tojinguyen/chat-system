@@ -12,7 +12,7 @@ infra-logs:
 
 # --- Kind Cluster ---
 kind-up:
-	kind create cluster --name $(CLUSTER) --config deployments/k8s/kind-config.yaml
+	kind create cluster --name $(CLUSTER) --config deployments/kind-config.yaml
 
 kind-down:
 	kind delete cluster --name $(CLUSTER)
@@ -21,7 +21,7 @@ kind-down:
 build:
 	docker build -t chat-system/ws-gateway:latest -f services/ws-gateway/Dockerfile .
 	docker build -t chat-system/chat-engine:latest -f services/chat-engine/Dockerfile .
-	docker build -t chat-system/api-service:latest -f services/api-service/Dockerfile .
+	docker build -t chat-system/api-service:latest services/api-service
 
 load:
 	kind load docker-image chat-system/ws-gateway:latest --name $(CLUSTER)

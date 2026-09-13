@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"go.yaml.in/yaml/v2"
+	"github.com/caarlos0/env/v11"
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -15,50 +16,52 @@ type Config struct {
 }
 
 type WorkerConfig struct {
-	ID string `yaml:"id"`
+	ID string `yaml:"id" env:"WORKER_ID" envDefault:"chat-worker-01"`
 }
 
 type NATSConfig struct {
-	URL                   string `yaml:"url"`
-	InboundSubject        string `yaml:"inbound_subject"`
-	InboundStream         string `yaml:"inbound_stream"`
-	InboundConsumerGroup  string `yaml:"inbound_consumer_group"`
-	OutboundSubjectPrefix string `yaml:"outbound_subject_prefix"`
-	NotificationSubject   string `yaml:"notification_subject"`
+	URL                   string `yaml:"url" env:"NATS_URL" envDefault:"nats://localhost:4222"`
+	InboundSubject        string `yaml:"inbound_subject" env:"NATS_INBOUND_SUBJECT" envDefault:"chat.inbound"`
+	InboundStream         string `yaml:"inbound_stream" env:"NATS_INBOUND_STREAM" envDefault:"CHAT_INBOUND"`
+	InboundConsumerGroup  string `yaml:"inbound_consumer_group" env:"NATS_INBOUND_CONSUMER_GROUP" envDefault:"chat_workers"`
+	OutboundSubjectPrefix string `yaml:"outbound_subject_prefix" env:"NATS_OUTBOUND_SUBJECT_PREFIX" envDefault:"chat.gateway."`
+	NotificationSubject   string `yaml:"notification_subject" env:"NATS_NOTIFICATION_SUBJECT" envDefault:"chat.notification"`
 }
 
 type DatabaseConfig struct {
-	Hosts    []string `yaml:"hosts"`
-	Keyspace string   `yaml:"keyspace"`
-	Table    string   `yaml:"table"`
+	Hosts    []string `yaml:"hosts" env:"CASSANDRA_HOSTS" envSeparator:","`
+	Keyspace string   `yaml:"keyspace" env:"CASSANDRA_KEYSPACE" envDefault:"chat_system"`
+	Table    string   `yaml:"table" env:"CASSANDRA_TABLE" envDefault:"messages"`
 }
 
 type RedisConfig struct {
-	Addr                  string `yaml:"addr"`
-	Password              string `yaml:"password"`
-	DB                    int    `yaml:"db"`
-	IdempotencyTTLSeconds int    `yaml:"idempotency_ttl_seconds"`
+	Addr                  string `yaml:"addr" env:"REDIS_ADDR" envDefault:"localhost:6379"`
+	Password              string `yaml:"password" env:"REDIS_PASSWORD"`
+	DB                    int    `yaml:"db" env:"REDIS_DB" envDefault:"0"`
+	IdempotencyTTLSeconds int    `yaml:"idempotency_ttl_seconds" env:"REDIS_IDEMPOTENCY_TTL" envDefault:"86400"`
 }
 
 var Cfg *Config
 
 func LoadConfig(path string) (*Config, error) {
-	if path == "" {
-		return nil, fmt.Errorf("đường dẫn file config không được để trống")
+	var cfg Config
+
+	// 1. Đọc file YAML nếu có (làm baseline/default)
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			if err := yaml.Unmarshal(data, &cfg); err != nil {
+				return nil, fmt.Errorf("không thể parse file yaml config: %w", err)
+			}
+		}
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("không thể đọc file config tại %s: %w", path, err)
+	// 2. Tự động đọc và ghi đè từ Environment Variables (Type-Safe qua caarlos0/env)
+	if err := env.Parse(&cfg); err != nil {
+		return nil, fmt.Errorf("không thể parse biến môi trường: %w", err)
 	}
 
-	var config Config
-
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("không thể parse file yaml config: %w", err)
-	}
-
-	Cfg = &config
+	Cfg = &cfg
 
 	if err := Cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("cấu hình không hợp lệ: %w", err)

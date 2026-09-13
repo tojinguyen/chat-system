@@ -5,6 +5,7 @@ go 1.25.0
 require github.com/gorilla/websocket v1.5.3
 
 require (
+	github.com/caarlos0/env/v11 v11.4.1
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/nats-io/nats.go v1.53.1
 	github.com/redis/go-redis/v9 v9.22.0
