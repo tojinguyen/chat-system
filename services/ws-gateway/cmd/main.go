@@ -12,6 +12,7 @@ import (
 
 	"chat-system/pkg/contracts"
 	natsclient "chat-system/pkg/nats"
+	"chat-system/pkg/telemetry"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/connection"
 	"ws-gateway/internal/delivery"
@@ -28,6 +29,22 @@ func main() {
 	log.Printf("Starting WebSocket Gateway node: %s (mode: %s, ws_port: :%d)",
 		cfg.Server.NodeID, cfg.Server.DeliveryMode, cfg.Server.Port)
 
+	// Initialize Unified Telemetry (Tracing + Profiling + Metrics Server)
+	shutdownTelemetry, err := telemetry.Setup(context.Background(), telemetry.SetupConfig{
+		ServiceName:      "ws-gateway",
+		ServiceVersion:   "1.0.0",
+		NodeID:           cfg.Server.NodeID,
+		CollectorTarget:  cfg.Telemetry.CollectorTarget,
+		MetricsPort:      cfg.Telemetry.MetricsPort,
+		ProfilerServer:   cfg.Profiler.ServerAddress,
+		DisableTracing:   cfg.Telemetry.Disabled,
+		DisableProfiling: cfg.Profiler.Disabled,
+	})
+	if err != nil {
+		log.Printf("[Warning] Telemetry setup: %v", err)
+	}
+	defer shutdownTelemetry(context.Background())
+
 	// Initialize NATS Connection for Inbound events
 	nc, err := natsclient.Connect(cfg.NATS.URL, "ws-gateway-"+cfg.Server.NodeID)
 	if err != nil {
@@ -35,8 +52,13 @@ func main() {
 	}
 	defer nc.Close()
 
-	// Initialize Generic NATS Inbound Producer
-	inboundProducer := natsclient.NewPublisher[contracts.InboundBrokerEvent](nc, cfg.NATS.InboundSubject)
+	// Initialize Generic NATS Inbound Producer with Telemetry Decorator
+	rawProducer := natsclient.NewPublisher[contracts.InboundBrokerEvent](nc, cfg.NATS.InboundSubject)
+	inboundProducer := natsclient.NewInstrumentedPublisher(rawProducer, natsclient.PublisherConfig{
+		ServiceName: "ws-gateway",
+		Stage:       "inbound",
+		EventType:   "inbound",
+	})
 
 	// Initialize Presence Service
 	presenceService := presence.NewPresenceService(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)

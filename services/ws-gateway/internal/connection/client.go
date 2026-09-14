@@ -7,10 +7,13 @@ import (
 	"time"
 
 	"chat-system/pkg/contracts"
+	"chat-system/pkg/telemetry"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/payload"
 
 	"github.com/gorilla/websocket"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Client represents a single active WebSocket connection
@@ -72,6 +75,17 @@ func (c *Client) handleIncomingMessage(msg *payload.WSMessage) {
 			return
 		}
 
+		tracer := telemetry.Tracer("ws-gateway")
+		traceCtx, span := tracer.Start(context.Background(), "ws.receive_message",
+			trace.WithAttributes(
+				attribute.String("client_msg_id", msg.ClientMsgID),
+				attribute.String("sender_id", c.UserID),
+				attribute.String("device_id", c.DeviceID),
+				attribute.String("gateway_node", config.Cfg.Server.NodeID),
+			),
+		)
+		defer span.End()
+
 		inboundEvent := contracts.InboundBrokerEvent{
 			Type:        brokerMessageType,
 			ClientMsgID: msg.ClientMsgID,
@@ -81,10 +95,10 @@ func (c *Client) handleIncomingMessage(msg *payload.WSMessage) {
 			Payload:     msg.Payload,
 			SentAt:      time.Now().UTC(),
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		pubCtx, cancel := context.WithTimeout(traceCtx, 2*time.Second)
 		defer cancel()
 
-		if err := c.Hub.producer.Publish(ctx, inboundEvent); err != nil {
+		if err := c.Hub.producer.Publish(pubCtx, inboundEvent); err != nil {
 			c.sendErrorMessage(msg.ClientMsgID, "Failed to send message")
 			return
 		}

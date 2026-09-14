@@ -1,12 +1,14 @@
 package delivery
 
 import (
-	"chat-system/pkg/contracts"
-	pb "chat-system/pkg/proto"
 	"context"
 	"fmt"
 	"log"
 	"net"
+
+	"chat-system/pkg/contracts"
+	pb "chat-system/pkg/proto"
+	"chat-system/pkg/telemetry"
 	"ws-gateway/internal/connection"
 	"ws-gateway/internal/payload"
 
@@ -32,7 +34,9 @@ func (g *GRPCListener) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to listen on gRPC port %d: %w", g.port, err)
 	}
-	g.grpcServer = grpc.NewServer()
+	g.grpcServer = grpc.NewServer(
+		grpc.UnaryInterceptor(telemetry.UnaryServerInterceptor("ws-gateway-grpc", "gateway_delivery")),
+	)
 	pb.RegisterWSGatewayServiceServer(g.grpcServer, g)
 	go func() {
 		log.Printf("[Delivery] gRPC Server listening at :%d", g.port)

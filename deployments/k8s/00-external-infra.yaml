@@ -33,4 +33,23 @@ metadata:
 spec:
   type: ExternalName
   externalName: host.docker.internal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+
 

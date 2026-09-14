@@ -63,3 +63,20 @@ sim:
 sim-stress:
 	cd services/client-simulator && go run cmd/main.go -bots 50 -convs 5 -interval 200ms
 
+# --- Chaos Engineering ---
+chaos-delay-grpc:
+	kubectl apply -f deployments/k8s/chaos/01-network-delay-grpc.yaml
+
+chaos-delay-nats:
+	kubectl apply -f deployments/k8s/chaos/02-network-delay-nats.yaml
+
+chaos-kill-gw:
+	kubectl apply -f deployments/k8s/chaos/03-pod-kill-gateway.yaml
+
+chaos-clean:
+	kubectl delete -f deployments/k8s/chaos/ --ignore-not-found
+
+k6-stress:
+	kubectl create configmap k6-test-script --from-file=test-ws-load.js=deployments/k6/test-ws-load.js -n chat-system --dry-run=client -o yaml | kubectl apply -f -
+	kubectl apply -f deployments/k6/k6-testrun.yaml
+

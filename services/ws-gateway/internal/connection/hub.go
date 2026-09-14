@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"chat-system/pkg/contracts"
+	"chat-system/pkg/telemetry"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/payload"
 )
@@ -55,6 +56,7 @@ func (h *Hub) Run() {
 			}
 			h.clients[client.UserID][client.DeviceID] = client
 			h.mu.Unlock()
+			telemetry.ActiveConnections.WithLabelValues(config.Cfg.Server.NodeID).Inc()
 
 			go func(c *Client) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -75,6 +77,7 @@ func (h *Hub) Run() {
 			}
 			close(client.SendChan)
 			h.mu.Unlock()
+			telemetry.ActiveConnections.WithLabelValues(config.Cfg.Server.NodeID).Dec()
 
 			go func(c *Client) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

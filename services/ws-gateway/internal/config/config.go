@@ -9,13 +9,26 @@ import (
 )
 
 type Config struct {
-	Server ServerConfig    `yaml:"server"`
-	Redis  RedisConfig     `yaml:"redis"`
-	NATS   NATSConfig      `yaml:"nats"`
-	Jwt    JwtConfig       `yaml:"jwt"`
-	Ws     WebSocketConfig `yaml:"ws"`
-	Pres   PresenceConfig  `yaml:"presence"`
-	GRPC   GRPCConfig      `yaml:"grpc"`
+	Server    ServerConfig    `yaml:"server"`
+	Redis     RedisConfig     `yaml:"redis"`
+	NATS      NATSConfig      `yaml:"nats"`
+	Jwt       JwtConfig       `yaml:"jwt"`
+	Ws        WebSocketConfig `yaml:"ws"`
+	Pres      PresenceConfig  `yaml:"presence"`
+	GRPC      GRPCConfig      `yaml:"grpc"`
+	Telemetry TelemetryConfig `yaml:"telemetry"`
+	Profiler  ProfilerConfig  `yaml:"profiler"`
+}
+
+type TelemetryConfig struct {
+	CollectorTarget string `yaml:"collector_target" env:"OTEL_COLLECTOR_TARGET" envDefault:"localhost:4317"`
+	MetricsPort     int    `yaml:"metrics_port" env:"METRICS_PORT" envDefault:"9091"`
+	Disabled        bool   `yaml:"disabled" env:"OTEL_DISABLED" envDefault:"false"`
+}
+
+type ProfilerConfig struct {
+	ServerAddress string `yaml:"server_address" env:"PYROSCOPE_SERVER" envDefault:"http://localhost:4040"`
+	Disabled      bool   `yaml:"disabled" env:"PYROSCOPE_DISABLED" envDefault:"false"`
 }
 
 type ServerConfig struct {

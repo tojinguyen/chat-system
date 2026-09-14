@@ -9,6 +9,7 @@ import (
 	"time"
 
 	natsclient "chat-system/pkg/nats"
+	"chat-system/pkg/telemetry"
 	"chat-worker/internal/config"
 	"chat-worker/internal/consumer"
 	"chat-worker/internal/dispatcher"
@@ -27,6 +28,22 @@ func main() {
 	}
 
 	log.Printf("Starting Chat Engine worker: %s", cfg.Worker.ID)
+
+	// Initialize Unified Telemetry (Tracing + Profiling + Metrics Server)
+	shutdownTelemetry, err := telemetry.Setup(context.Background(), telemetry.SetupConfig{
+		ServiceName:      "chat-engine",
+		ServiceVersion:   "1.0.0",
+		NodeID:           cfg.Worker.ID,
+		CollectorTarget:  cfg.Telemetry.CollectorTarget,
+		MetricsPort:      cfg.Telemetry.MetricsPort,
+		ProfilerServer:   cfg.Profiler.ServerAddress,
+		DisableTracing:   cfg.Telemetry.Disabled,
+		DisableProfiling: cfg.Profiler.Disabled,
+	})
+	if err != nil {
+		log.Printf("[Warning] Telemetry setup: %v", err)
+	}
+	defer shutdownTelemetry(context.Background())
 
 	// Run Database Schema Migrations
 	if err := migrator.Run(&cfg.Database); err != nil {

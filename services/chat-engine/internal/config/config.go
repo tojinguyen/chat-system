@@ -9,11 +9,24 @@ import (
 )
 
 type Config struct {
-	Worker   WorkerConfig   `yaml:"worker"`
-	NATS     NATSConfig     `yaml:"nats"`
-	Database DatabaseConfig `yaml:"database"`
-	Redis    RedisConfig    `yaml:"redis"`
-	Delivery DeliveryConfig `yaml:"delivery"`
+	Worker    WorkerConfig    `yaml:"worker"`
+	NATS      NATSConfig      `yaml:"nats"`
+	Database  DatabaseConfig  `yaml:"database"`
+	Redis     RedisConfig     `yaml:"redis"`
+	Delivery  DeliveryConfig  `yaml:"delivery"`
+	Telemetry TelemetryConfig `yaml:"telemetry"`
+	Profiler  ProfilerConfig  `yaml:"profiler"`
+}
+
+type TelemetryConfig struct {
+	CollectorTarget string `yaml:"collector_target" env:"OTEL_COLLECTOR_TARGET" envDefault:"localhost:4317"`
+	MetricsPort     int    `yaml:"metrics_port" env:"METRICS_PORT" envDefault:"9092"`
+	Disabled        bool   `yaml:"disabled" env:"OTEL_DISABLED" envDefault:"false"`
+}
+
+type ProfilerConfig struct {
+	ServerAddress string `yaml:"server_address" env:"PYROSCOPE_SERVER" envDefault:"http://localhost:4040"`
+	Disabled      bool   `yaml:"disabled" env:"PYROSCOPE_DISABLED" envDefault:"false"`
 }
 
 type WorkerConfig struct {

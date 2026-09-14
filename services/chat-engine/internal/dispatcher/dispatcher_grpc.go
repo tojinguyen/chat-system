@@ -15,14 +15,19 @@ import (
 )
 
 type grpcEventDispatcher struct {
-	ackPublisher  *natsclient.Publisher[contracts.OutboundBrokerEvent]
+	ackPublisher  *natsclient.InstrumentedPublisher[contracts.OutboundBrokerEvent]
 	clientManager *grpcclient.GatewayClientManager
 }
 
 // NewGRPCEventDispatcher khởi tạo Dispatcher sử dụng GatewayClientManager từ pkg/grpcclient
 func NewGRPCEventDispatcher(cfg *config.DeliveryConfig, nc *nats.Conn) EventDispatcher {
+	rawPublisher := natsclient.NewPublisher[contracts.OutboundBrokerEvent](nc, "")
 	return &grpcEventDispatcher{
-		ackPublisher:  natsclient.NewPublisher[contracts.OutboundBrokerEvent](nc, ""),
+		ackPublisher: natsclient.NewInstrumentedPublisher(rawPublisher, natsclient.PublisherConfig{
+			ServiceName: "chat-engine",
+			Stage:       "sender_ack",
+			EventType:   "ack",
+		}),
 		clientManager: grpcclient.NewGatewayClientManager(cfg.GRPCPort, cfg.GRPCServiceSuffix),
 	}
 }
@@ -44,6 +49,7 @@ func (d *grpcEventDispatcher) SendAckToSender(ctx context.Context, gatewayNode s
 }
 
 // DispatchToGateway gửi tin nhắn trực tiếp qua gRPC tới WS Gateway Pod mà người nhận kết nối
+// Telemetry (Tracing W3C, Duration, Metrics) được tự động xử lý bởi gRPC Client Interceptor
 func (d *grpcEventDispatcher) DispatchToGateway(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error {
 	if gatewayNode == "" {
 		return fmt.Errorf("gatewayNode is empty, cannot route message to gateway via gRPC")

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pb "chat-system/pkg/proto"
+	"chat-system/pkg/telemetry"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -78,6 +79,7 @@ func (m *GatewayClientManager) GetClient(nodeID string) (pb.WSGatewayServiceClie
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
+		grpc.WithUnaryInterceptor(telemetry.UnaryClientInterceptor(nodeID)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial WS Gateway gRPC at %s: %w", addr, err)

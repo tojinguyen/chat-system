@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 
+	"chat-system/pkg/telemetry"
+
 	"github.com/nats-io/nats.go"
 )
 
@@ -40,13 +42,18 @@ func NewQueueSubscriber[T any](conn *nats.Conn, subject string, queueGroup strin
 // Start begins consuming messages asynchronously and invokes the handler for each received message
 func (s *Subscriber[T]) Start(ctx context.Context, handler Handler[T]) error {
 	msgHandler := func(msg *nats.Msg) {
+		msgCtx := telemetry.ExtractNATSTraceContext(ctx, msg)
+		tracer := telemetry.Tracer("nats-subscriber")
+		spanCtx, span := tracer.Start(msgCtx, fmt.Sprintf("nats.consume %s", s.subject))
+		defer span.End()
+
 		var data T
 		if err := json.Unmarshal(msg.Data, &data); err != nil {
 			log.Printf("[NATS Subscriber] Failed to unmarshal message from %s: %v", s.subject, err)
 			return
 		}
 
-		if err := handler(ctx, data); err != nil {
+		if err := handler(spanCtx, data); err != nil {
 			log.Printf("[NATS Subscriber] Error handling message from %s: %v", s.subject, err)
 		}
 	}

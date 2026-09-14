@@ -12,13 +12,18 @@ import (
 )
 
 type natsEventDispatcher struct {
-	outboundPublisher *natsclient.Publisher[contracts.OutboundBrokerEvent]
+	outboundPublisher *natsclient.InstrumentedPublisher[contracts.OutboundBrokerEvent]
 }
 
-// NewNATSEventDispatcher khởi tạo Dispatcher sử dụng NATS Pub/Sub
+// NewNATSEventDispatcher khởi tạo Dispatcher sử dụng NATS Pub/Sub với Telemetry Decorator
 func NewNATSEventDispatcher(nc *nats.Conn) EventDispatcher {
+	rawPublisher := natsclient.NewPublisher[contracts.OutboundBrokerEvent](nc, "")
 	return &natsEventDispatcher{
-		outboundPublisher: natsclient.NewPublisher[contracts.OutboundBrokerEvent](nc, ""),
+		outboundPublisher: natsclient.NewInstrumentedPublisher(rawPublisher, natsclient.PublisherConfig{
+			ServiceName: "chat-engine",
+			Stage:       "outbound_dispatch",
+			EventType:   "outbound",
+		}),
 	}
 }
 
@@ -41,10 +46,12 @@ func (d *natsEventDispatcher) DispatchToGateway(ctx context.Context, gatewayNode
 	if gatewayNode == "" {
 		return fmt.Errorf("gatewayNode is empty, cannot route message to gateway")
 	}
+
 	subject := contracts.GatewayNodeSubject(gatewayNode)
-	if err := d.outboundPublisher.PublishToSubject(ctx, subject, event); err != nil {
+	if err := d.outboundPublisher.PublishToNode(ctx, gatewayNode, subject, event); err != nil {
 		return fmt.Errorf("failed to publish outbound message to subject '%s': %w", subject, err)
 	}
+
 	log.Printf("[Dispatcher:NATS] Message dispatched to receiver gateway: msg_id=%s, receiver=%s -> subject=%s",
 		event.MessageID, event.ReceiverID, subject)
 	return nil

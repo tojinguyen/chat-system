@@ -1,0 +1,34 @@
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: distributed-ws-stress-test
+  namespace: chat-system
+spec:
+  parallelism: 10 # Tự động tạo 10 k6-runner pods phân tán trên các node K8s
+  script:
+    configMap:
+      name: k6-test-script
+      file: test-ws-load.js
+  arguments: --out statsd
+  runner:
+    env:
+      - name: WS_GATEWAY_URL
+        value: "ws://nginx-gateway.chat-system.svc.cluster.local:80/ws"
+      - name: K6_STATSD_ADDR
+        value: "victoriametrics.chat-system.svc.cluster.local:8125"
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-test-script
+  namespace: chat-system
+data:
+  test-ws-load.js: |
+    # Test script will be mounted from test-ws-load.js

@@ -7,6 +7,7 @@ import (
 
 	"chat-system/pkg/contracts"
 	natsclient "chat-system/pkg/nats"
+	"chat-system/pkg/telemetry"
 	"ws-gateway/internal/connection"
 	"ws-gateway/internal/payload"
 
@@ -29,7 +30,10 @@ func NewNATSListener(nc *nats.Conn, nodeID string, hub *connection.Hub) *NATSLis
 }
 
 func (n *NATSListener) Start(ctx context.Context) error {
-	err := n.subscriber.Start(ctx, func(ctx context.Context, event contracts.OutboundBrokerEvent) error {
+	handler := telemetry.InstrumentHandler(telemetry.HandlerConfig{
+		Mode:  "nats",
+		Stage: "gateway_delivery",
+	}, func(ctx context.Context, event contracts.OutboundBrokerEvent) error {
 		deliveryPayload := payload.MessageDeliveryPayload{
 			MessageID:      event.MessageID,
 			ClientMsgID:    event.ClientMsgID,
@@ -54,7 +58,7 @@ func (n *NATSListener) Start(ctx context.Context) error {
 		return nil
 	})
 
-	if err != nil {
+	if err := n.subscriber.Start(ctx, handler); err != nil {
 		return fmt.Errorf("failed to start NATS listener: %w", err)
 	}
 

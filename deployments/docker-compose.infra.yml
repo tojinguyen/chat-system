@@ -107,6 +107,86 @@ services:
     depends_on:
       - nats
 
+  # ----------------------------------------------------
+  # OBSERVABILITY STACK (Trực tiếp trên Host, không cần Port-forward)
+  # ----------------------------------------------------
+
+  # VictoriaMetrics - Time-series Metrics Database (Truy cập: http://localhost:8428/vmui)
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.102.1
+    container_name: chat-victoriametrics
+    command:
+      - "-storageDataPath=/victoria-metrics-data"
+      - "-retentionPeriod=7d"
+      - "-httpListenAddr=:8428"
+    ports:
+      - "8428:8428"
+    volumes:
+      - victoriametrics_data:/victoria-metrics-data
+    networks:
+      - chat-network
+
+  # Pyroscope - Continuous Profiling (Truy cập: http://localhost:4040)
+  pyroscope:
+    image: grafana/pyroscope:1.7.1
+    container_name: chat-pyroscope
+    ports:
+      - "4040:4040"
+    volumes:
+      - pyroscope_data:/data
+    networks:
+      - chat-network
+
+  # OpenTelemetry Collector (Truy cập OTLP: gRPC :4317, HTTP :4318)
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    container_name: chat-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    volumes:
+      - ./configs/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    networks:
+      - chat-network
+    depends_on:
+      - victoriametrics
+      - tempo
+
+  # Grafana Tempo - Distributed Tracing Backend (Truy cập: :3200)
+  tempo:
+    image: grafana/tempo:2.6.0
+    container_name: chat-tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    ports:
+      - "3200:3200" # HTTP API
+    volumes:
+      - ./configs/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    networks:
+      - chat-network
+
+  # Grafana - Unified Observability Dashboard (Truy cập: http://localhost:3000)
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: chat-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-pyroscope-app
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./configs/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+    networks:
+      - chat-network
+    depends_on:
+      - victoriametrics
+      - pyroscope
+      - tempo
+
 networks:
   chat-network:
     name: chat-network
@@ -118,3 +198,7 @@ volumes:
   cassandra_data:
   nats_data:
   redis_insight_data:
+  victoriametrics_data:
+  pyroscope_data:
+  grafana_data:
+  tempo_data:
