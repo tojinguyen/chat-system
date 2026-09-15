@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: vmagent
+  name: prometheus-agent
   namespace: chat-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: vmagent
+  name: prometheus-agent
 rules:
   - apiGroups: [""]
     resources:
@@ -21,26 +21,29 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: vmagent
+  name: prometheus-agent
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: vmagent
+  name: prometheus-agent
 subjects:
   - kind: ServiceAccount
-    name: vmagent
+    name: prometheus-agent
     namespace: chat-system
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: vmagent-config
+  name: prometheus-agent-config
   namespace: chat-system
 data:
-  scrape.yaml: |
+  prometheus.yml: |
     global:
       scrape_interval: 2s
       scrape_timeout: 2s
+
+    remote_write:
+      - url: "http://host.docker.internal:9090/api/v1/write"
 
     scrape_configs:
       - job_name: 'ws-gateway'
@@ -67,31 +70,33 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: vmagent
+  name: prometheus-agent
   namespace: chat-system
   labels:
-    app: vmagent
+    app: prometheus-agent
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: vmagent
+      app: prometheus-agent
   template:
     metadata:
       labels:
-        app: vmagent
+        app: prometheus-agent
     spec:
-      serviceAccountName: vmagent
+      serviceAccountName: prometheus-agent
       containers:
-        - name: vmagent
-          image: victoriametrics/vmagent:v1.102.1
+        - name: prometheus-agent
+          image: prom/prometheus:v2.54.1
           args:
-            - "-promscrape.config=/etc/vmagent/scrape.yaml"
-            - "-remoteWrite.url=http://host.docker.internal:8428/api/v1/write"
-            - "-remoteWrite.tmpDataPath=/vmagent-data"
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.agent.path=/prometheus-data"
+            - "--enable-feature=agent"
           volumeMounts:
             - name: config
-              mountPath: /etc/vmagent
+              mountPath: /etc/prometheus
+            - name: storage
+              mountPath: /prometheus-data
           resources:
             requests:
               cpu: 50m
@@ -102,4 +107,6 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: vmagent-config
+            name: prometheus-agent-config
+        - name: storage
+          emptyDir: {}
