@@ -10,12 +10,25 @@ datasources:
     jsonData:
       timeInterval: 5s
 
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 1000
+
   - name: Tempo
     uid: tempo
     type: tempo
     access: proxy
     url: http://tempo:3200
     jsonData:
+      tracesToLogs:
+        datasourceUid: loki
+        tags: ['service.name', 'service']
+        filterByTraceID: true
+        filterBySpanID: true
       tracesToMetrics:
         datasourceUid: prometheus
         tags: [{ key: 'service.name', value: 'service' }]

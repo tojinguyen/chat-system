@@ -142,6 +142,20 @@ services:
     networks:
       - chat-network
 
+  # Grafana Loki - Log Aggregation System (Truy cập: :3100)
+  loki:
+    image: grafana/loki:3.1.0
+    container_name: chat-loki
+    user: "0:0"
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./configs/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/var/loki
+    networks:
+      - chat-network
+
   # OpenTelemetry Collector (Truy cập OTLP: gRPC :4317, HTTP :4318)
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.110.0
@@ -157,6 +171,7 @@ services:
     depends_on:
       - prometheus
       - tempo
+      - loki
 
   # Grafana Tempo - Distributed Tracing Backend (Truy cập: :3200)
   tempo:
@@ -191,6 +206,7 @@ services:
       - prometheus
       - pyroscope
       - tempo
+      - loki
 
 networks:
   chat-network:
@@ -207,3 +223,4 @@ volumes:
   pyroscope_data:
   grafana_data:
   tempo_data:
+  loki_data:
