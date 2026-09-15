@@ -59,5 +59,24 @@ metadata:
 spec:
   type: ExternalName
   externalName: host.docker.internal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+
 
 

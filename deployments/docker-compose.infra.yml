@@ -156,6 +156,20 @@ services:
     networks:
       - chat-network
 
+  # Promtail - Log Shipper for Docker Containers (Gắn nhãn container_name)
+  promtail:
+    image: grafana/promtail:3.1.0
+    container_name: chat-promtail
+    user: "0:0"
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    volumes:
+      - ./configs/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - chat-network
+    depends_on:
+      - loki
+
   # OpenTelemetry Collector (Truy cập OTLP: gRPC :4317, HTTP :4318)
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.110.0
