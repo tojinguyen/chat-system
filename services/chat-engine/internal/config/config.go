@@ -30,7 +30,10 @@ type ProfilerConfig struct {
 }
 
 type WorkerConfig struct {
-	ID string `yaml:"id" env:"WORKER_ID" envDefault:"chat-worker-01"`
+	ID                  string `yaml:"id" env:"WORKER_ID" envDefault:"chat-worker-01"`
+	Workers             int    `yaml:"workers" env:"CHAT_WORKER_COUNT" envDefault:"32"`
+	BufferSize          int    `yaml:"buffer_size" env:"CHAT_WORKER_BUFFER_SIZE" envDefault:"1024"`
+	DrainTimeoutSeconds int    `yaml:"drain_timeout_seconds" env:"CHAT_WORKER_DRAIN_TIMEOUT_SECONDS" envDefault:"10"`
 }
 
 type NATSConfig struct {

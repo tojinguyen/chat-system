@@ -27,7 +27,8 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	log.Printf("Starting Chat Engine worker: %s", cfg.Worker.ID)
+	log.Printf("Starting Chat Engine worker: %s (workers=%d, buffer=%d)",
+		cfg.Worker.ID, cfg.Worker.Workers, cfg.Worker.BufferSize)
 
 	// Initialize Unified Telemetry (Tracing + Profiling + Metrics Server)
 	shutdownTelemetry, err := telemetry.Setup(context.Background(), telemetry.SetupConfig{
@@ -91,27 +92,41 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Initialize Inbound Consumer with worker queue group
-	inboundConsumer := consumer.NewConsumer(
-		nc,
-		cfg.NATS.InboundSubject,
-		cfg.NATS.InboundConsumerGroup,
-		chatUsecase,
-	)
+	// Initialize Inbound Consumer with Partitioned Worker Pool
+	inboundConsumer, err := consumer.NewConsumer(consumer.Config{
+		NC:          nc,
+		Subject:     cfg.NATS.InboundSubject,
+		QueueGroup:  cfg.NATS.InboundConsumerGroup,
+		NumWorkers:  cfg.Worker.Workers,
+		BufferSize:  cfg.Worker.BufferSize,
+		ChatUsecase: chatUsecase,
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize partitioned consumer: %v", err)
+	}
 
 	if err := inboundConsumer.Start(ctx); err != nil {
 		log.Fatalf("Failed to start inbound consumer: %v", err)
 	}
 
-	log.Printf("Consumer started on subject '%s' with queue group '%s'",
-		cfg.NATS.InboundSubject, cfg.NATS.InboundConsumerGroup)
+	log.Printf("Consumer started on subject '%s' with queue group '%s' and %d partitioned workers",
+		cfg.NATS.InboundSubject, cfg.NATS.InboundConsumerGroup, cfg.Worker.Workers)
 
 	// Wait for termination signal
 	<-ctx.Done()
 
-	log.Println("Shutting down Chat Engine...")
-	if err := inboundConsumer.Stop(); err != nil {
-		log.Printf("Error stopping consumer: %v", err)
+	log.Println("Received termination signal, shutting down Chat Engine...")
+
+	// Graceful shutdown sequence with drain timeout
+	drainTimeout := time.Duration(cfg.Worker.DrainTimeoutSeconds) * time.Second
+	if drainTimeout <= 0 {
+		drainTimeout = 10 * time.Second
+	}
+	drainCtx, cancel := context.WithTimeout(context.Background(), drainTimeout)
+	defer cancel()
+
+	if err := inboundConsumer.Stop(drainCtx); err != nil {
+		log.Printf("Error during graceful consumer drain: %v", err)
 	}
 
 	log.Println("Chat Engine exited cleanly")
