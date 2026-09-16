@@ -133,7 +133,7 @@ services:
 
   # Pyroscope - Continuous Profiling (Truy cập: http://localhost:4040)
   pyroscope:
-    image: grafana/pyroscope:1.7.1
+    image: grafana/pyroscope:latest
     container_name: chat-pyroscope
     ports:
       - "4040:4040"
