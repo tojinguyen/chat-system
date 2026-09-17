@@ -33,17 +33,8 @@ func main() {
 	log.Printf("Cấu hình: %d bots | ~%d convs/bot | Interval: %s", *numBots, *convsPerBot, *sendInterval)
 	log.Printf("API Service: %s | WS Gateway: %s", *apiURL, *wsURL)
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
-	if *testDuration > 0 {
-		log.Printf("⏱️ Chế độ: Chạy trong %s rồi tự động dừng.", *testDuration)
-		var cancelTimer context.CancelFunc
-		ctx, cancelTimer = context.WithTimeout(ctx, *testDuration)
-		defer cancelTimer()
-	} else {
-		log.Println("♾️ Chế độ: Chạy liên tục vô hạn (nhấn Ctrl+C để dừng và xem báo cáo tổng kết).")
-	}
+	rootCtx, rootCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer rootCancel()
 
 	authClient := auth.NewAuthClient(*apiURL)
 	convoManager := conversation.NewManager(*apiURL)
@@ -53,7 +44,7 @@ func main() {
 	log.Printf("[Phase 1] Authenticating %d bots concurrently via API Service...", *numBots)
 	botSessions := make([]*auth.BotSession, *numBots)
 	var authWg sync.WaitGroup
-	authSem := make(chan struct{}, 30) // Giới hạn 30 concurrent auth requests
+	authSem := make(chan struct{}, 30)
 	var authErrMu sync.Mutex
 	var firstAuthErr error
 
@@ -88,12 +79,12 @@ func main() {
 	log.Printf("[Phase 2] Setting up direct conversations between bots...")
 	botTargets := convoManager.EnsureDirectConversations(botSessions, *convsPerBot)
 
-	// 3. GIAI ĐOẠN 3: Connect WebSocket Clients song song (Concurrency = 30)
-	log.Printf("[Phase 3] Establishing WebSocket connections for %d bots in parallel...", len(botSessions))
+	// 3. GIAI ĐOẠN 3: Connect WebSocket Clients (Smooth Ramp-Up Concurrency = 20)
+	log.Printf("[Phase 3] Establishing WebSocket connections for %d bots...", len(botSessions))
 	bots := make([]*bot.Bot, len(botSessions))
 
 	var wsWg sync.WaitGroup
-	wsSem := make(chan struct{}, 30) // 30 concurrent handshakes
+	wsSem := make(chan struct{}, 20)
 	var activeCount int64
 	var countMu sync.Mutex
 
@@ -102,6 +93,7 @@ func main() {
 			continue
 		}
 		wsWg.Add(1)
+		time.Sleep(5 * time.Millisecond) // Smooth TCP syn pacing for Windows
 		go func(i int, s *auth.BotSession) {
 			defer wsWg.Done()
 			wsSem <- struct{}{}
@@ -110,12 +102,14 @@ func main() {
 			targets := botTargets[s.UserID]
 			b := bot.NewBot(s, *wsURL, targets, tracker)
 
-			if err := b.Connect(ctx); err != nil {
+			connectCtx, connectCancel := context.WithTimeout(rootCtx, 20*time.Second)
+			defer connectCancel()
+
+			if err := b.Connect(connectCtx); err != nil {
 				log.Printf("WARN: Bot %s failed to connect WS: %v", s.Username, err)
 				return
 			}
 
-			b.Start(ctx, *sendInterval)
 			bots[i] = b
 
 			countMu.Lock()
@@ -126,16 +120,32 @@ func main() {
 	wsWg.Wait()
 
 	log.Printf("Successfully connected %d/%d bots to WebSocket Gateway!", activeCount, *numBots)
-	time.Sleep(1 * time.Second)
+	log.Println("🚀 Kích hoạt đồng loạt 150 bots bắt đầu phát sinh tin nhắn...")
+	for _, b := range bots {
+		if b != nil {
+			b.Start(rootCtx, *sendInterval)
+		}
+	}
+	time.Sleep(500 * time.Millisecond)
 
-	// 4. GIAI ĐOẠN 4: Live Dashboard Display Loop
+	// 4. GIAI ĐOẠN 4: Live Dashboard Display Loop & Test Duration
+	testCtx := rootCtx
+	if *testDuration > 0 {
+		log.Printf("⏱️ Bắt đầu đo tải: Chạy trong %s rồi tự động dừng...", *testDuration)
+		var cancelTimer context.CancelFunc
+		testCtx, cancelTimer = context.WithTimeout(rootCtx, *testDuration)
+		defer cancelTimer()
+	} else {
+		log.Println("♾️ Bắt đầu đo tải liên tục (nhấn Ctrl+C để dừng)...")
+	}
+
 	startTime := time.Now()
 	dashboardTicker := time.NewTicker(1 * time.Second)
 	defer dashboardTicker.Stop()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-testCtx.Done():
 			log.Println("\nStopping simulator and closing connections...")
 			for _, b := range bots {
 				if b != nil {

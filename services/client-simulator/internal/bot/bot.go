@@ -78,7 +78,7 @@ func (b *Bot) Connect(ctx context.Context) error {
 	u.RawQuery = q.Encode()
 
 	dialer := websocket.Dialer{
-		HandshakeTimeout: 5 * time.Second,
+		HandshakeTimeout: 15 * time.Second,
 	}
 
 	conn, _, err := dialer.DialContext(ctx, u.String(), nil)
