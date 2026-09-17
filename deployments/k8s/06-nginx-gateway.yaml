@@ -21,7 +21,10 @@ data:
         }
 
         upstream ws_backend {
-            server ws-gateway-public.chat-system.svc.cluster.local:80;
+            least_conn;
+            server ws-gateway-0.ws-gateway-headless.chat-system.svc.cluster.local:8080;
+            server ws-gateway-1.ws-gateway-headless.chat-system.svc.cluster.local:8080;
+            server ws-gateway-2.ws-gateway-headless.chat-system.svc.cluster.local:8080;
         }
 
         server {
@@ -63,6 +66,8 @@ metadata:
     app: nginx-gateway
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: nginx-gateway
