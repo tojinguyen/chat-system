@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -44,7 +45,7 @@ func NewManager(baseURL string) *Manager {
 	}
 }
 
-// EnsureDirectConversations đảm bảo mỗi bot có đủ số lượng direct conversation với các bot khác
+// EnsureDirectConversations đảm bảo mỗi bot có đủ số lượng direct conversation với các bot khác song song
 func (m *Manager) EnsureDirectConversations(bots []*auth.BotSession, desiredConvsPerBot int) map[string][]Target {
 	botTargets := make(map[string][]Target)
 	totalBots := len(bots)
@@ -56,55 +57,76 @@ func (m *Manager) EnsureDirectConversations(bots []*auth.BotSession, desiredConv
 		desiredConvsPerBot = 1
 	}
 
-	log.Printf("[Conversation] Setting up conversation graph: %d bots, target ~%d convs/bot...",
+	log.Printf("[Conversation] Setting up conversation graph concurrently: %d bots, target ~%d convs/bot...",
 		totalBots, desiredConvsPerBot)
 
-	for i, currentBot := range bots {
-		existingMap := make(map[string]string) // partnerID -> convoID
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 30) // 30 concurrent queries
 
-		// 1. Lấy danh sách conversation hiện có của bot
-		existingConvos, err := m.fetchUserConversations(currentBot.AccessToken)
-		if err == nil {
-			for _, convo := range existingConvos {
-				for _, member := range convo.Members {
-					if member.UserID != currentBot.UserID && member.UserID != "" {
-						existingMap[member.UserID] = convo.ID
+	for i, currentBot := range bots {
+		if currentBot == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, b *auth.BotSession) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			existingMap := make(map[string]string)
+
+			// 1. Lấy danh sách conversation hiện có của bot
+			existingConvos, err := m.fetchUserConversations(b.AccessToken)
+			if err == nil {
+				for _, convo := range existingConvos {
+					for _, member := range convo.Members {
+						if member.UserID != b.UserID && member.UserID != "" {
+							existingMap[member.UserID] = convo.ID
+						}
 					}
 				}
 			}
-		}
 
-		// 2. Nếu chưa đủ desiredConvsPerBot, tạo thêm với các bot khác
-		for step := 1; step <= desiredConvsPerBot; step++ {
-			partnerIdx := (i + step) % totalBots
-			if partnerIdx == i {
-				continue
+			// 2. Nếu chưa đủ desiredConvsPerBot, tạo thêm với các bot khác
+			for step := 1; step <= desiredConvsPerBot; step++ {
+				partnerIdx := (idx + step) % totalBots
+				if partnerIdx == idx {
+					continue
+				}
+				partnerBot := bots[partnerIdx]
+				if partnerBot == nil {
+					continue
+				}
+
+				if _, exists := existingMap[partnerBot.UserID]; exists {
+					continue
+				}
+
+				// Gọi POST /conversations/direct để tạo
+				convoID, err := m.createDirectConversation(b.AccessToken, partnerBot.UserID)
+				if err == nil && convoID != "" {
+					existingMap[partnerBot.UserID] = convoID
+				}
 			}
-			partnerBot := bots[partnerIdx]
 
-			if _, exists := existingMap[partnerBot.UserID]; exists {
-				continue
+			// Gom danh sách target cho bot hiện tại
+			targets := make([]Target, 0, len(existingMap))
+			for partnerID, convoID := range existingMap {
+				targets = append(targets, Target{
+					ConversationID: convoID,
+					PartnerID:      partnerID,
+				})
 			}
 
-			// Gọi POST /conversations/direct để tạo
-			convoID, err := m.createDirectConversation(currentBot.AccessToken, partnerBot.UserID)
-			if err == nil && convoID != "" {
-				existingMap[partnerBot.UserID] = convoID
-			}
-		}
-
-		// Gom danh sách target cho bot hiện tại
-		targets := make([]Target, 0, len(existingMap))
-		for partnerID, convoID := range existingMap {
-			targets = append(targets, Target{
-				ConversationID: convoID,
-				PartnerID:      partnerID,
-			})
-		}
-		botTargets[currentBot.UserID] = targets
+			mu.Lock()
+			botTargets[b.UserID] = targets
+			mu.Unlock()
+		}(i, currentBot)
 	}
+	wg.Wait()
 
-	log.Printf("[Conversation] Conversation graph established successfully.")
+	log.Printf("[Conversation] Conversation graph established successfully in parallel.")
 	return botTargets
 }
 

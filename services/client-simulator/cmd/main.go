@@ -49,46 +49,81 @@ func main() {
 	convoManager := conversation.NewManager(*apiURL)
 	tracker := metrics.NewTracker()
 
-	// 1. GIAI ĐOẠN 1: Authenticate / Register Bots
-	log.Printf("[Phase 1] Authenticating %d bots via API Service...", *numBots)
-	botSessions := make([]*auth.BotSession, 0, *numBots)
+	// 1. GIAI ĐOẠN 1: Authenticate / Register Bots song song (Concurrency = 30)
+	log.Printf("[Phase 1] Authenticating %d bots concurrently via API Service...", *numBots)
+	botSessions := make([]*auth.BotSession, *numBots)
+	var authWg sync.WaitGroup
+	authSem := make(chan struct{}, 30) // Giới hạn 30 concurrent auth requests
+	var authErrMu sync.Mutex
+	var firstAuthErr error
 
 	for i := 1; i <= *numBots; i++ {
-		username := fmt.Sprintf("sim_bot_%04d", i)
-		session, err := authClient.EnsureBotAuth(username, *botPassword)
-		if err != nil {
-			log.Fatalf("Failed to authenticate bot %s: %v", username, err)
-		}
-		botSessions = append(botSessions, session)
-		if i%10 == 0 || i == *numBots {
-			log.Printf("  - Authenticated: %d/%d bots", i, *numBots)
-		}
-	}
+		authWg.Add(1)
+		go func(idx int) {
+			defer authWg.Done()
+			authSem <- struct{}{}
+			defer func() { <-authSem }()
 
-	// 2. GIAI ĐOẠN 2: Setup Conversation Network
+			username := fmt.Sprintf("sim_bot_%04d", idx)
+			session, err := authClient.EnsureBotAuth(username, *botPassword)
+			if err != nil {
+				authErrMu.Lock()
+				if firstAuthErr == nil {
+					firstAuthErr = fmt.Errorf("failed to authenticate bot %s: %w", username, err)
+				}
+				authErrMu.Unlock()
+				return
+			}
+			botSessions[idx-1] = session
+		}(i)
+	}
+	authWg.Wait()
+
+	if firstAuthErr != nil {
+		log.Fatalf("Authentication failed: %v", firstAuthErr)
+	}
+	log.Printf("  - Successfully authenticated %d/%d bots in parallel!", len(botSessions), *numBots)
+
+	// 2. GIAI ĐOẠN 2: Setup Conversation Network song song
 	log.Printf("[Phase 2] Setting up direct conversations between bots...")
 	botTargets := convoManager.EnsureDirectConversations(botSessions, *convsPerBot)
 
-	// 3. GIAI ĐOẠN 3: Connect WebSocket Clients
-	log.Printf("[Phase 3] Establishing WebSocket connections for %d bots...", len(botSessions))
-	bots := make([]*bot.Bot, 0, len(botSessions))
+	// 3. GIAI ĐOẠN 3: Connect WebSocket Clients song song (Concurrency = 30)
+	log.Printf("[Phase 3] Establishing WebSocket connections for %d bots in parallel...", len(botSessions))
+	bots := make([]*bot.Bot, len(botSessions))
 
-	var activeBotsCount sync.WaitGroup
+	var wsWg sync.WaitGroup
+	wsSem := make(chan struct{}, 30) // 30 concurrent handshakes
 	var activeCount int64
+	var countMu sync.Mutex
 
-	for _, session := range botSessions {
-		targets := botTargets[session.UserID]
-		b := bot.NewBot(session, *wsURL, targets, tracker)
-
-		if err := b.Connect(ctx); err != nil {
-			log.Printf("WARN: Bot %s failed to connect WS: %v", session.Username, err)
+	for idx, session := range botSessions {
+		if session == nil {
 			continue
 		}
+		wsWg.Add(1)
+		go func(i int, s *auth.BotSession) {
+			defer wsWg.Done()
+			wsSem <- struct{}{}
+			defer func() { <-wsSem }()
 
-		b.Start(ctx, *sendInterval)
-		bots = append(bots, b)
-		activeCount++
+			targets := botTargets[s.UserID]
+			b := bot.NewBot(s, *wsURL, targets, tracker)
+
+			if err := b.Connect(ctx); err != nil {
+				log.Printf("WARN: Bot %s failed to connect WS: %v", s.Username, err)
+				return
+			}
+
+			b.Start(ctx, *sendInterval)
+			bots[i] = b
+
+			countMu.Lock()
+			activeCount++
+			countMu.Unlock()
+		}(idx, session)
 	}
+	wsWg.Wait()
 
 	log.Printf("Successfully connected %d/%d bots to WebSocket Gateway!", activeCount, *numBots)
 	time.Sleep(1 * time.Second)
@@ -103,9 +138,10 @@ func main() {
 		case <-ctx.Done():
 			log.Println("\nStopping simulator and closing connections...")
 			for _, b := range bots {
-				b.Stop()
+				if b != nil {
+					b.Stop()
+				}
 			}
-			activeBotsCount.Wait()
 
 			// Print final summary
 			tracker.PrintDashboard(0, *numBots, time.Since(startTime))
