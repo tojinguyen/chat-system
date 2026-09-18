@@ -1,26 +1,22 @@
 apiVersion: chaos-mesh.org/v1alpha1
 kind: NetworkChaos
 metadata:
-  name: delay-nats-broker
+  name: mobile-network-partition
   namespace: chat-system
 spec:
-  action: delay
+  action: partition
   mode: all
   selector:
     namespaces:
       - chat-system
     labelSelectors:
-      app: ws-gateway
-  delay:
-    latency: '100ms'
-    jitter: '10ms'
-    correlation: '50'
-  direction: to
+      app: client-simulator
+  direction: both
   target:
     selector:
       namespaces:
         - chat-system
       labelSelectors:
-        app: nats
+        app: nginx-gateway
     mode: all
-  duration: '5m'
+  duration: '45s'

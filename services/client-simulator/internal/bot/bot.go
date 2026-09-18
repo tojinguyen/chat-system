@@ -97,7 +97,7 @@ func (b *Bot) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Start bắt đầu các pump: read, write, heartbeat, và traffic generator
+// Start bắt đầu các pump: read, write, heartbeat và traffic generator
 func (b *Bot) Start(ctx context.Context, sendInterval time.Duration) {
 	go b.lifecyclePump(ctx)
 	go b.writePump(ctx)
@@ -144,7 +144,7 @@ func (b *Bot) lifecyclePump(ctx context.Context) {
 
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			// Socket bị đứt (Node Gateway sập hoặc reset)
+			// Socket bị đứt (Node Gateway sập hoặc network partition)
 			b.isConnected.Store(false)
 			b.connMu.Lock()
 			if b.conn != nil {
@@ -213,6 +213,7 @@ func (b *Bot) reconnect(ctx context.Context) {
 
 		if err := b.Connect(ctx); err == nil {
 			// Reconnect thành công!
+			b.Tracker.RecordReconnect()
 			return
 		}
 

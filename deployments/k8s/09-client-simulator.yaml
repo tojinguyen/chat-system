@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-simulator
+  namespace: chat-system
+  labels:
+    app: client-simulator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client-simulator
+  template:
+    metadata:
+      labels:
+        app: client-simulator
+    spec:
+      containers:
+        - name: client-simulator
+          image: chat-system/client-simulator:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-api=http://nginx-gateway.chat-system.svc.cluster.local"
+            - "-ws=ws://nginx-gateway.chat-system.svc.cluster.local/ws"
+            - "-bots=50"
+            - "-convs=10"
+            - "-interval=500ms"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"

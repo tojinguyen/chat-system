@@ -214,6 +214,8 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./configs/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./configs/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - chat-network
     depends_on:

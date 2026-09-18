@@ -14,6 +14,7 @@ type Tracker struct {
 	totalAck          atomic.Int64
 	totalDelivered    atomic.Int64
 	totalErrors       atomic.Int64
+	totalReconnects   atomic.Int64
 	totalLatencyNanos atomic.Int64
 
 	// Sample buffer để tính Percentiles (p50, p90, p95, p99)
@@ -56,11 +57,16 @@ func (t *Tracker) RecordError() {
 	t.totalErrors.Add(1)
 }
 
-func (t *Tracker) GetStats() (sent, ack, delivered, errs int64, avgMs float64, p50, p90, p95, p99, maxMs float64) {
+func (t *Tracker) RecordReconnect() {
+	t.totalReconnects.Add(1)
+}
+
+func (t *Tracker) GetStats() (sent, ack, delivered, errs, reconnects int64, avgMs float64, p50, p90, p95, p99, maxMs float64) {
 	sent = t.totalSent.Load()
 	ack = t.totalAck.Load()
 	delivered = t.totalDelivered.Load()
 	errs = t.totalErrors.Load()
+	reconnects = t.totalReconnects.Load()
 
 	if ack > 0 {
 		avgMs = float64(t.totalLatencyNanos.Load()) / float64(ack) / 1e6
@@ -87,7 +93,7 @@ func (t *Tracker) GetStats() (sent, ack, delivered, errs int64, avgMs float64, p
 }
 
 func (t *Tracker) PrintDashboard(activeBots, totalBots int, uptime time.Duration) {
-	sent, ack, delivered, errs, avgMs, p50, p90, p95, p99, maxMs := t.GetStats()
+	sent, ack, delivered, errs, reconnects, avgMs, p50, p90, p95, p99, maxMs := t.GetStats()
 
 	secs := uptime.Seconds()
 	var sendTps, ackTps float64
@@ -108,7 +114,8 @@ func (t *Tracker) PrintDashboard(activeBots, totalBots int, uptime time.Duration
 	fmt.Println("------------------------------------------------------------------------------")
 	fmt.Printf("Messages Sent:    %-8d | Send Rate:       %.1f msgs/sec\n", sent, sendTps)
 	fmt.Printf("ACKs Received:    %-8d | ACK Rate:        %.1f%% (%.1f acks/sec)\n", ack, ackRate, ackTps)
-	fmt.Printf("Msg Delivered:    %-8d | Errors/Drops:    %d\n", delivered, errs)
+	fmt.Printf("Msg Delivered:    %-8d | Errors:          %d\n", delivered, errs)
+	fmt.Printf("Reconnects:       %-8d\n", reconnects)
 	fmt.Println("------------------------------------------------------------------------------")
 	fmt.Println("Round-Trip Latency (Sender ACK):")
 	fmt.Printf("  - Average:      %6.2f ms\n", avgMs)

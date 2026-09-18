@@ -22,11 +22,13 @@ build:
 	docker build -t chat-system/ws-gateway:latest -f services/ws-gateway/Dockerfile .
 	docker build -t chat-system/chat-engine:latest -f services/chat-engine/Dockerfile .
 	docker build -t chat-system/api-service:latest services/api-service
+	docker build -t chat-system/client-simulator:latest -f services/client-simulator/Dockerfile .
 
 load:
 	kind load docker-image chat-system/ws-gateway:latest --name $(CLUSTER)
 	kind load docker-image chat-system/chat-engine:latest --name $(CLUSTER)
 	kind load docker-image chat-system/api-service:latest --name $(CLUSTER)
+	kind load docker-image chat-system/client-simulator:latest --name $(CLUSTER)
 
 build-load: build load
 
@@ -42,6 +44,7 @@ k8s-restart:
 	kubectl rollout restart deployment/chat-engine -n chat-system
 	kubectl rollout restart deployment/api-service -n chat-system
 	kubectl rollout restart deployment/nginx-gateway -n chat-system
+	kubectl rollout restart deployment/client-simulator -n chat-system --ignore-not-found
 
 k8s-status:
 	kubectl get pods,svc,statefulset -n chat-system -o wide
@@ -56,12 +59,21 @@ logs-engine:
 logs-api:
 	kubectl logs -l app=api-service -n chat-system -f
 
+logs-sim:
+	kubectl logs -l app=client-simulator -n chat-system -f
+
 # --- Client Simulator ---
 sim:
 	cd services/client-simulator && go run cmd/main.go -bots 10 -convs 3 -interval 1s
 
 sim-stress:
 	cd services/client-simulator && go run cmd/main.go -bots 50 -convs 5 -interval 200ms
+
+sim-k8s:
+	kubectl apply -f deployments/k8s/09-client-simulator.yaml
+
+sim-k8s-down:
+	kubectl delete -f deployments/k8s/09-client-simulator.yaml --ignore-not-found
 
 # --- Chaos Engineering ---
 chaos-delay-grpc:
@@ -72,6 +84,15 @@ chaos-delay-nats:
 
 chaos-kill-gw:
 	kubectl apply -f deployments/k8s/chaos/03-pod-kill-gateway.yaml
+
+chaos-mobile-delay:
+	kubectl apply -f deployments/k8s/chaos/04-mobile-network-delay.yaml
+
+chaos-mobile-loss:
+	kubectl apply -f deployments/k8s/chaos/05-mobile-packet-loss.yaml
+
+chaos-mobile-partition:
+	kubectl apply -f deployments/k8s/chaos/06-mobile-network-partition.yaml
 
 chaos-clean:
 	kubectl delete -f deployments/k8s/chaos/ --ignore-not-found

@@ -62,6 +62,62 @@ var (
 		},
 		[]string{"service", "event_type", "status"},
 	)
+
+	// WorkerChannelDepth tracks the current number of pending jobs in a worker channel
+	WorkerChannelDepth = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "chat",
+			Subsystem: "worker",
+			Name:      "channel_depth",
+			Help:      "Current number of pending items queued in the partitioned worker channel.",
+		},
+		[]string{"worker_id"},
+	)
+
+	// WorkerChannelCapacity tracks the buffer capacity of a worker channel
+	WorkerChannelCapacity = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "chat",
+			Subsystem: "worker",
+			Name:      "channel_capacity",
+			Help:      "Maximum buffer capacity of the partitioned worker channel.",
+		},
+		[]string{"worker_id"},
+	)
+
+	// WorkerChannelSaturation tracks the saturation percentage (depth / capacity)
+	WorkerChannelSaturation = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "chat",
+			Subsystem: "worker",
+			Name:      "channel_saturation_ratio",
+			Help:      "Saturation ratio (0.0 to 1.0) of the partitioned worker channel.",
+		},
+		[]string{"worker_id"},
+	)
+
+	// WorkerJobsTotal tracks the count of processed jobs per worker
+	WorkerJobsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "chat",
+			Subsystem: "worker",
+			Name:      "jobs_total",
+			Help:      "Total number of jobs executed by the worker pool.",
+		},
+		[]string{"worker_id", "status"},
+	)
+
+	// DatabaseLatency tracks individual DB operation latency (Cassandra / Redis)
+	DatabaseLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "chat",
+			Subsystem: "db",
+			Name:      "operation_duration_seconds",
+			Help:      "Duration of database operations (Cassandra / Redis).",
+			Buckets:   latencyBuckets,
+		},
+		[]string{"system", "operation", "status"},
+	)
 )
 
 func init() {
@@ -70,6 +126,11 @@ func init() {
 		DispatchDuration,
 		ActiveConnections,
 		MessagesProcessed,
+		WorkerChannelDepth,
+		WorkerChannelCapacity,
+		WorkerChannelSaturation,
+		WorkerJobsTotal,
+		DatabaseLatency,
 	)
 }
 

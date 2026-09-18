@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"sync/atomic"
+
+	"chat-system/pkg/telemetry"
 )
 
 const (
@@ -34,6 +37,7 @@ type Job[T any] struct {
 // Worker đại diện cho một goroutine xử lý độc lập trên channel riêng
 type Worker[T any] struct {
 	id      int
+	idStr   string
 	jobCh   chan Job[T]
 	handler HandlerFunc[T]
 }
@@ -81,11 +85,18 @@ func NewPartitionedPool[T any](cfg Config[T]) (*PartitionedPool[T], error) {
 	}
 
 	for i := 0; i < cfg.NumWorkers; i++ {
+		idStr := strconv.Itoa(i)
 		pool.workers[i] = &Worker[T]{
 			id:      i,
+			idStr:   idStr,
 			jobCh:   make(chan Job[T], cfg.BufferSize),
 			handler: cfg.Handler,
 		}
+
+		// Initialize channel metrics
+		telemetry.WorkerChannelCapacity.WithLabelValues(idStr).Set(float64(cfg.BufferSize))
+		telemetry.WorkerChannelDepth.WithLabelValues(idStr).Set(0)
+		telemetry.WorkerChannelSaturation.WithLabelValues(idStr).Set(0)
 	}
 
 	return pool, nil
@@ -105,6 +116,11 @@ func (p *PartitionedPool[T]) runWorker(w *Worker[T]) {
 	defer p.wg.Done()
 
 	for job := range w.jobCh {
+		// Update metrics after taking a job from queue
+		depth := len(w.jobCh)
+		telemetry.WorkerChannelDepth.WithLabelValues(w.idStr).Set(float64(depth))
+		telemetry.WorkerChannelSaturation.WithLabelValues(w.idStr).Set(float64(depth) / float64(p.bufferSize))
+
 		p.processJobWithRecovery(w, job)
 	}
 }
@@ -113,13 +129,18 @@ func (p *PartitionedPool[T]) runWorker(w *Worker[T]) {
 func (p *PartitionedPool[T]) processJobWithRecovery(w *Worker[T], job Job[T]) {
 	defer func() {
 		if r := recover(); r != nil {
+			telemetry.WorkerJobsTotal.WithLabelValues(w.idStr, "panic").Inc()
 			log.Printf("[Worker %d] CRITICAL: Panic recovered while processing job: %v", w.id, r)
 		}
 	}()
 
 	if err := w.handler(job.Ctx, job.Item); err != nil {
+		telemetry.WorkerJobsTotal.WithLabelValues(w.idStr, "error").Inc()
 		log.Printf("[Worker %d] Error processing job: %v", w.id, err)
+		return
 	}
+
+	telemetry.WorkerJobsTotal.WithLabelValues(w.idStr, "success").Inc()
 }
 
 // Submit định tuyến item vào channel của worker tương ứng theo hash(keyExtractor(item))
@@ -139,6 +160,9 @@ func (p *PartitionedPool[T]) Submit(ctx context.Context, item T) error {
 
 	select {
 	case targetWorker.jobCh <- job:
+		depth := len(targetWorker.jobCh)
+		telemetry.WorkerChannelDepth.WithLabelValues(targetWorker.idStr).Set(float64(depth))
+		telemetry.WorkerChannelSaturation.WithLabelValues(targetWorker.idStr).Set(float64(depth) / float64(p.bufferSize))
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
