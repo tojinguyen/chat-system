@@ -1,3 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: simulator-config
+  namespace: chat-system
+data:
+  SIM_BOTS: "50"
+  SIM_CONVS: "5"
+  SIM_INTERVAL: "200ms"
+  SIM_DURATION: "0s"
+  SIM_API_URL: "http://nginx-gateway.chat-system.svc.cluster.local"
+  SIM_WS_URL: "ws://nginx-gateway.chat-system.svc.cluster.local/ws"
+  SIM_PASSWORD: "Pass@123456"
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,12 +33,9 @@ spec:
         - name: client-simulator
           image: chat-system/client-simulator:latest
           imagePullPolicy: IfNotPresent
-          args:
-            - "-api=http://nginx-gateway.chat-system.svc.cluster.local"
-            - "-ws=ws://nginx-gateway.chat-system.svc.cluster.local/ws"
-            - "-bots=50"
-            - "-convs=10"
-            - "-interval=500ms"
+          envFrom:
+            - configMapRef:
+                name: simulator-config
           resources:
             requests:
               cpu: "200m"
@@ -32,3 +43,4 @@ spec:
             limits:
               cpu: "1000m"
               memory: "512Mi"
+

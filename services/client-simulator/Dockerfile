@@ -25,6 +25,6 @@ RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /root/
 COPY --from=builder /client-simulator .
+COPY --from=builder /app/services/client-simulator/configs ./configs
 
-ENTRYPOINT ["./client-simulator"]
-CMD ["-api=http://nginx-gateway.chat-system.svc.cluster.local", "-ws=ws://nginx-gateway.chat-system.svc.cluster.local/ws", "-bots=30", "-convs=5", "-interval=500ms"]
+CMD ["./client-simulator"]

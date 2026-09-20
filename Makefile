@@ -40,7 +40,7 @@ load-sim:
 	kind load docker-image chat-system/client-simulator:latest --name $(CLUSTER)
 
 build-load-sim: build-sim load-sim
-	kubectl rollout restart deployment/client-simulator -n chat-system --ignore-not-found
+	kubectl rollout restart deployment/client-simulator -n chat-system
 
 build-engine:
 	docker build -t chat-system/chat-engine:latest -f services/chat-engine/Dockerfile .
@@ -72,7 +72,7 @@ k8s-restart:
 	kubectl rollout restart deployment/chat-engine -n chat-system
 	kubectl rollout restart deployment/api-service -n chat-system
 	kubectl rollout restart deployment/nginx-gateway -n chat-system
-	kubectl rollout restart deployment/client-simulator -n chat-system --ignore-not-found
+	kubectl rollout restart deployment/client-simulator -n chat-system
 
 k8s-config:
 	kubectl apply -f deployments/k8s/01-configmap-secrets.yaml
@@ -96,18 +96,19 @@ logs-api:
 logs-sim:
 	kubectl logs -l app=client-simulator -n chat-system -f
 
-# --- Client Simulator ---
-sim:
-	cd services/client-simulator && go run cmd/main.go -bots 10 -convs 3 -interval 1s
-
-sim-stress:
-	cd services/client-simulator && go run cmd/main.go -bots 50 -convs 5 -interval 200ms
-
-sim-k8s:
+# --- Client Simulator (Kubernetes) ---
+sim-up:
 	kubectl apply -f deployments/k8s/09-client-simulator.yaml
 
-sim-k8s-down:
+sim-down:
 	kubectl delete -f deployments/k8s/09-client-simulator.yaml --ignore-not-found
+
+sim-restart:
+	kubectl rollout restart deployment/client-simulator -n chat-system
+
+# Alias giữ tương thích
+sim-k8s: sim-up
+sim-k8s-down: sim-down
 
 # --- Chaos Engineering ---
 chaos-delay-grpc:

@@ -13,24 +13,41 @@ import (
 
 	"client-simulator/internal/auth"
 	"client-simulator/internal/bot"
+	"client-simulator/internal/config"
 	"client-simulator/internal/conversation"
 	"client-simulator/internal/metrics"
 )
 
 func main() {
-	numBots := flag.Int("bots", 10, "Số lượng bot muốn tạo và chạy mô phỏng")
-	convsPerBot := flag.Int("convs", 5, "Số lượng cuộc hội thoại 1-1 tối đa trên mỗi bot")
-	sendInterval := flag.Duration("interval", 1*time.Second, "Tần suất gửi tin nhắn của mỗi bot (vd: 500ms, 1s, 2s)")
-	apiURL := flag.String("api", "http://localhost", "URL gốc của API Service (hoặc NGINX Ingress)")
-	wsURL := flag.String("ws", "ws://localhost/ws", "URL endpoint WebSocket của WS Gateway (hoặc NGINX Ingress)")
-	testDuration := flag.Duration("duration", 0, "Thời gian chạy test (0 = chạy liên tục đến khi Ctrl+C)")
-	botPassword := flag.String("password", "Pass@123456", "Mật khẩu chung cho các bot tài khoản")
+	// 1. Quét cờ -config nếu có, mặc định tìm configs/config.yaml
+	initialCfgPath := "configs/config.yaml"
+	for i, arg := range os.Args {
+		if arg == "-config" && i+1 < len(os.Args) {
+			initialCfgPath = os.Args[i+1]
+		}
+	}
+
+	// 2. Nạp cấu hình từ YAML và Biến môi trường (Environment Variables)
+	cfg, err := config.LoadConfig(initialCfgPath)
+	if err != nil {
+		log.Printf("[Config] Notice: %v", err)
+	}
+
+	// 3. CLI Flags có thể ghi đè cấu hình khi chạy test thủ công
+	_ = flag.String("config", initialCfgPath, "Đường dẫn file cấu hình YAML")
+	numBots := flag.Int("bots", cfg.Bots, "Số lượng bot muốn tạo và chạy mô phỏng")
+	convsPerBot := flag.Int("convs", cfg.ConvsPerBot, "Số lượng cuộc hội thoại 1-1 tối đa trên mỗi bot")
+	sendInterval := flag.Duration("interval", cfg.Interval, "Tần suất gửi tin nhắn của mỗi bot (vd: 200ms, 500ms, 1s)")
+	apiURL := flag.String("api", cfg.APIURL, "URL gốc của API Service (hoặc NGINX Ingress)")
+	wsURL := flag.String("ws", cfg.WSURL, "URL endpoint WebSocket của WS Gateway (hoặc NGINX Ingress)")
+	testDuration := flag.Duration("duration", cfg.Duration, "Thời gian chạy test (0 = chạy liên tục đến khi Ctrl+C)")
+	botPassword := flag.String("password", cfg.Password, "Mật khẩu chung cho các bot tài khoản")
 	flag.Parse()
 
 	log.Println("=================================================================")
 	log.Println("           🚀 KHỞI ĐỘNG CHAT CLIENT SIMULATOR                   ")
 	log.Println("=================================================================")
-	log.Printf("Cấu hình: %d bots | ~%d convs/bot | Interval: %s", *numBots, *convsPerBot, *sendInterval)
+	log.Printf("Cấu hình: %d bots | ~%d convs/bot | Interval: %s | Duration: %s", *numBots, *convsPerBot, *sendInterval, *testDuration)
 	log.Printf("API Service: %s | WS Gateway: %s", *apiURL, *wsURL)
 
 	rootCtx, rootCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -120,7 +137,7 @@ func main() {
 	wsWg.Wait()
 
 	log.Printf("Successfully connected %d/%d bots to WebSocket Gateway!", activeCount, *numBots)
-	log.Println("🚀 Kích hoạt đồng loạt 150 bots bắt đầu phát sinh tin nhắn...")
+	log.Printf("🚀 Kích hoạt đồng loạt %d bots bắt đầu phát sinh tin nhắn...", activeCount)
 	for _, b := range bots {
 		if b != nil {
 			b.Start(rootCtx, *sendInterval)
