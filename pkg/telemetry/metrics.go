@@ -118,6 +118,18 @@ var (
 		},
 		[]string{"system", "operation", "status"},
 	)
+
+	// ClientNetworkLatency tracks the network round-trip time (RTT) measured via client WebSocket ping/heartbeat
+	ClientNetworkLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "chat",
+			Subsystem: "gateway",
+			Name:      "client_network_rtt_seconds",
+			Help:      "Network round-trip latency measured via WebSocket heartbeat/ping.",
+			Buckets:   latencyBuckets,
+		},
+		[]string{"node_id"},
+	)
 )
 
 func init() {
@@ -131,6 +143,7 @@ func init() {
 		WorkerChannelSaturation,
 		WorkerJobsTotal,
 		DatabaseLatency,
+		ClientNetworkLatency,
 	)
 }
 

@@ -10,9 +10,10 @@ import (
 type WSEventType string
 
 const (
-	WSEventSendMessage  WSEventType = "SEND_MESSAGE"
-	WSEventFailedToSend WSEventType = "FAILED_TO_SEND"
-	WSEventHeartbeat    WSEventType = "HEARTBEAT"
+	WSEventSendMessage   WSEventType = "SEND_MESSAGE"
+	WSEventFailedToSend  WSEventType = "FAILED_TO_SEND"
+	WSEventHeartbeat     WSEventType = "HEARTBEAT"
+	WSEventHeartbeatAck  WSEventType = "HEARTBEAT_ACK"
 )
 
 func (t WSEventType) ToBrokerMessageType() (contracts.BrokerMessageType, bool) {

@@ -59,7 +59,26 @@ func (c *Client) ReadPump() {
 func (c *Client) handleIncomingMessage(msg *payload.WSMessage) {
 	switch msg.Type {
 	case payload.WSEventHeartbeat:
-		log.Printf("Heartbeat received from user %s", c.UserID)
+		// 1. Phản hồi ngay HEARTBEAT_ACK về cho client đo Round-Trip Time (Network Delay)
+		ackMsg := &payload.WSMessage{
+			Type:        payload.WSEventHeartbeatAck,
+			ClientMsgID: msg.ClientMsgID,
+			Timestamp:   msg.Timestamp,
+		}
+		select {
+		case c.SendChan <- ackMsg:
+		default:
+		}
+
+		// 2. Đo Inbound Network Delay và ghi nhận lên Prometheus
+		if msg.Timestamp > 0 {
+			diff := time.Now().UnixMilli() - msg.Timestamp
+			if diff >= 0 && diff < 60000 {
+				telemetry.ClientNetworkLatency.WithLabelValues(config.Cfg.Server.NodeID).Observe(float64(diff) / 1000.0)
+			}
+		}
+
+		// 3. Cập nhật presence bất đồng bộ
 		go func(c *Client) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

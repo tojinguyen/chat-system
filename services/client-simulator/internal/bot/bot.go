@@ -178,6 +178,24 @@ func (b *Bot) lifecyclePump(ctx context.Context) {
 			msgID = inner.ClientMsgID
 		}
 
+		// 0. Kiểm tra HEARTBEAT_ACK để đo Network Round-Trip Time (Network Delay)
+		if env.Type == "HEARTBEAT_ACK" {
+			if msgID != "" {
+				if val, ok := b.inFlight.LoadAndDelete(msgID); ok {
+					sentAt := val.(time.Time)
+					b.Tracker.RecordNetworkDelay(time.Since(sentAt))
+					continue
+				}
+			}
+			if env.Timestamp > 0 {
+				diff := time.Now().UnixMilli() - env.Timestamp
+				if diff >= 0 {
+					b.Tracker.RecordNetworkDelay(time.Duration(diff) * time.Millisecond)
+				}
+			}
+			continue
+		}
+
 		// 1. Kiểm tra Sender ACK
 		if msgID != "" {
 			if val, ok := b.inFlight.LoadAndDelete(msgID); ok {
@@ -268,28 +286,45 @@ func (b *Bot) writePump(ctx context.Context) {
 }
 
 func (b *Bot) heartbeatPump(ctx context.Context) {
-	ticker := time.NewTicker(25 * time.Second)
-	defer ticker.Stop()
+	// Khởi đầu với Jitter ngẫu nhiên tránh thundering herd
+	initialJitter := time.Duration(rand.Intn(2000)) * time.Millisecond
+	select {
+	case <-ctx.Done():
+		return
+	case <-b.stopChan:
+		return
+	case <-time.After(initialJitter):
+	}
 
 	for {
+		// Nhịp heartbeat định kỳ 4s + ngẫu nhiên 0-2s để liên tục đo Network RTT
+		interval := 4*time.Second + time.Duration(rand.Intn(2000))*time.Millisecond
 		select {
 		case <-ctx.Done():
 			return
 		case <-b.stopChan:
 			return
-		case <-ticker.C:
-			if !b.IsConnected() {
-				continue
-			}
-			hbEnv := wsEnvelope{
-				Type:      "HEARTBEAT",
-				Timestamp: time.Now().UnixMilli(),
-			}
-			bytes, _ := json.Marshal(hbEnv)
-			select {
-			case b.sendChan <- bytes:
-			default:
-			}
+		case <-time.After(interval):
+		}
+
+		if !b.IsConnected() {
+			continue
+		}
+
+		now := time.Now()
+		hbID := fmt.Sprintf("hb_%s_%d", b.Session.Username, now.UnixNano())
+		b.inFlight.Store(hbID, now)
+
+		hbEnv := wsEnvelope{
+			Type:        "HEARTBEAT",
+			ClientMsgID: hbID,
+			Timestamp:   now.UnixMilli(),
+		}
+		bytes, _ := json.Marshal(hbEnv)
+		select {
+		case b.sendChan <- bytes:
+		default:
+			b.inFlight.Delete(hbID)
 		}
 	}
 }
