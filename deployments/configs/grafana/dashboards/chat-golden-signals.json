@@ -1314,7 +1314,7 @@
           },
           "editorMode": "code",
           "expr": "go_memstats_alloc_bytes",
-          "legendFormat": "Heap Alloc: {{instance}}",
+          "legendFormat": "{{instance}} - {{job}}",
           "range": true,
           "refId": "A"
         }
@@ -1390,7 +1390,7 @@
           },
           "editorMode": "code",
           "expr": "rate(process_cpu_seconds_total[1m]) * 100",
-          "legendFormat": "CPU: {{instance}}",
+          "legendFormat": "{{instance}} - {{job}}",
           "range": true,
           "refId": "A"
         }
