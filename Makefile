@@ -60,6 +60,15 @@ load-gw:
 build-load-gw: build-gw load-gw
 	kubectl rollout restart statefulset/ws-gateway -n chat-system
 
+build-api:
+	docker build -t chat-system/api-service:latest services/api-service
+
+load-api:
+	kind load docker-image chat-system/api-service:latest --name $(CLUSTER)
+
+build-load-api: build-api load-api
+	kubectl rollout restart deployment/api-service -n chat-system
+
 # --- Kubernetes Deploy & Ops ---
 k8s-deploy:
 	kubectl apply -f deployments/k8s/
