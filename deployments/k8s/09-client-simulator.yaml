@@ -4,10 +4,10 @@ metadata:
   name: simulator-config
   namespace: chat-system
 data:
-  SIM_BOTS: "50"
-  SIM_CONVS: "5"
-  SIM_INTERVAL: "200ms"
-  SIM_DURATION: "1m"
+  SIM_BOTS: "500"
+  SIM_CONVS: "10"
+  SIM_INTERVAL: "100ms"
+  SIM_DURATION: "2m"
   SIM_API_URL: "http://nginx-gateway.chat-system.svc.cluster.local"
   SIM_WS_URL: "ws://nginx-gateway.chat-system.svc.cluster.local/ws"
   SIM_PASSWORD: "Pass@123456"
