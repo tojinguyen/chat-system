@@ -100,7 +100,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Thời gian điều phối (Dispatch) P99 từ Chat Engine sang WS Gateway qua gRPC. P99 < 50ms là an toàn, > 100ms cảnh báo nghẽn socket hoặc Jitter mạng."
     },
     {
       "datasource": {
@@ -169,7 +170,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Thời gian điều phối (Dispatch) P99 từ Chat Engine sang WS Gateway qua NATS Broker. Nhờ cơ chế bất đồng bộ, chỉ số này thường < 5ms."
     },
     {
       "datasource": {
@@ -234,7 +236,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Tổng số request gRPC dispatch thất bại (lỗi mạng, timeout hoặc Gateway từ chối)."
     },
     {
       "datasource": {
@@ -299,7 +302,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Tổng số lỗi khi publish tin nhắn vào NATS subject."
     },
     {
       "datasource": {
@@ -351,7 +355,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Tốc độ xử lý đỉnh điểm (Messages/sec) ở chế độ gRPC."
     },
     {
       "datasource": {
@@ -403,7 +408,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Tốc độ xử lý đỉnh điểm (Messages/sec) ở chế độ NATS Broker."
     },
     {
       "collapsed": false,
@@ -530,7 +536,8 @@
           "range": true,
           "refId": "P50"
         }
-      ]
+      ],
+      "description": "DISPATCH LATENCY: Thời gian Chat Engine điều phối tin nhắn sang máy chủ Gateway nơi người nhận đang giữ kết nối WebSocket. Biểu đồ so sánh P50, P95, P99 giữa gRPC và NATS."
     },
     {
       "datasource": {
@@ -617,7 +624,8 @@
           "range": true,
           "refId": "InboundQueue"
         }
-      ]
+      ],
+      "description": "END-TO-END (E2E): Tổng thời gian tin nhắn đi từ Inbound -> Lưu ScyllaDB -> Dispatch -> Gateway đẩy xuống Socket Client. Gateway Push là thời gian Gateway nhận tin và ghi vào socket người nhận."
     },
     {
       "collapsed": false,
@@ -705,7 +713,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "THROUGHPUT: Thông lượng xử lý tin nhắn thực tế (tin nhắn/giây) của hệ thống theo chế độ gRPC vs NATS."
     },
     {
       "datasource": {
@@ -781,7 +790,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "LOAD BALANCING: Phân bổ tin nhắn tới từng Pod Gateway (0, 1, 2). Dùng để phát hiện Hotspot Pod khi một node gánh quá nhiều kết nối."
     },
     {
       "collapsed": false,
@@ -886,7 +896,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "DISPATCH ERROR RATE: Tỷ lệ lỗi (%) trên tổng số tin nhắn điều phối. Bình thường = 0%. Nếu > 1% là cảnh báo nguy hiểm."
     },
     {
       "datasource": {
@@ -962,7 +973,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "REJECTION RATE: Số tin nhắn bị Gateway từ chối do quá tải bộ đệm Outbound (chỉ xảy ra ở gRPC khi client đọc chậm, NATS không bị vì có Broker đệm)."
     },
     {
       "collapsed": false,
@@ -1078,7 +1090,8 @@
           "range": true,
           "refId": "Avg"
         }
-      ]
+      ],
+      "description": "WORKER SATURATION: Độ bão hòa (%) của Go channel trong PartitionedPool của Chat Engine. 100% nghĩa là hàng đợi đã kịch trần, hệ thống bị Backpressure."
     },
     {
       "datasource": {
@@ -1154,7 +1167,8 @@
           "range": true,
           "refId": "TotalDepth"
         }
-      ]
+      ],
+      "description": "PENDING BACKLOG: Tổng số job tin nhắn đang chờ xử lý trong Worker Pool. Tăng vọt khi ScyllaDB chậm hoặc luồng Dispatch bị nghẽn."
     },
     {
       "collapsed": false,
@@ -1242,7 +1256,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "GOROUTINES: Số lượng Goroutine chạy trong từng Pod. Khi gRPC bị trễ mạng, Goroutines sẽ bùng nổ do bị block chờ I/O; NATS không bị vì là fire-and-forget."
     },
     {
       "datasource": {
@@ -1318,7 +1333,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "HEAP ALLOC: Dung lượng RAM Heap đang được cấp phát bởi Go runtime. Giúp phát hiện Memory Leak hoặc buffer bị phình to."
     },
     {
       "datasource": {
@@ -1394,7 +1410,8 @@
           "range": true,
           "refId": "A"
         }
-      ]
+      ],
+      "description": "CPU USAGE: Tỷ lệ CPU tiêu thụ (%) của từng Pod Chat Engine và Gateway."
     }
   ],
   "refresh": "5s",

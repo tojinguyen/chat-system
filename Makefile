@@ -32,6 +32,34 @@ load:
 
 build-load: build load
 
+# --- Build & Load Từng Service Riêng Biệt (Tối ưu tốc độ dev) ---
+build-sim:
+	docker build -t chat-system/client-simulator:latest -f services/client-simulator/Dockerfile .
+
+load-sim:
+	kind load docker-image chat-system/client-simulator:latest --name $(CLUSTER)
+
+build-load-sim: build-sim load-sim
+	kubectl rollout restart deployment/client-simulator -n chat-system --ignore-not-found
+
+build-engine:
+	docker build -t chat-system/chat-engine:latest -f services/chat-engine/Dockerfile .
+
+load-engine:
+	kind load docker-image chat-system/chat-engine:latest --name $(CLUSTER)
+
+build-load-engine: build-engine load-engine
+	kubectl rollout restart deployment/chat-engine -n chat-system
+
+build-gw:
+	docker build -t chat-system/ws-gateway:latest -f services/ws-gateway/Dockerfile .
+
+load-gw:
+	kind load docker-image chat-system/ws-gateway:latest --name $(CLUSTER)
+
+build-load-gw: build-gw load-gw
+	kubectl rollout restart statefulset/ws-gateway -n chat-system
+
 # --- Kubernetes Deploy & Ops ---
 k8s-deploy:
 	kubectl apply -f deployments/k8s/
@@ -45,6 +73,12 @@ k8s-restart:
 	kubectl rollout restart deployment/api-service -n chat-system
 	kubectl rollout restart deployment/nginx-gateway -n chat-system
 	kubectl rollout restart deployment/client-simulator -n chat-system --ignore-not-found
+
+k8s-config:
+	kubectl apply -f deployments/k8s/01-configmap-secrets.yaml
+	kubectl rollout restart deployment/chat-engine statefulset/ws-gateway deployment/nginx-gateway -n chat-system
+
+reload: k8s-config
 
 k8s-status:
 	kubectl get pods,svc,statefulset -n chat-system -o wide
