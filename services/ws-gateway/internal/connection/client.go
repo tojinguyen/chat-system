@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"chat-system/pkg/contracts"
@@ -18,18 +19,19 @@ import (
 
 // Client represents a single active WebSocket connection
 type Client struct {
-	UserID   string
-	DeviceID string
-	SendChan chan *payload.WSMessage
-	Conn     *websocket.Conn
-	Hub      *Hub
+	UserID    string
+	DeviceID  string
+	SendChan  chan *payload.WSMessage
+	Conn      *websocket.Conn
+	Hub       *Hub
+	closeOnce sync.Once
 }
 
 // ReadPump handles reading messages from the WebSocket connection
 func (c *Client) ReadPump() {
 	defer func() {
 		c.Hub.UnregisterClient(c)
-		c.Conn.Close()
+		c.closeConnSafely()
 	}()
 
 	c.Conn.SetReadLimit(int64(config.Cfg.Ws.MaxMessageSize))
@@ -149,7 +151,7 @@ func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.Conn.Close()
+		c.closeConnSafely()
 	}()
 
 	for {
@@ -174,12 +176,20 @@ func (c *Client) WritePump() {
 	}
 }
 
+// closeConnSafely closes the underlying WebSocket connection exactly once.
+func (c *Client) closeConnSafely() {
+	c.closeOnce.Do(func() {
+		if c.Conn != nil {
+			_ = c.Conn.Close()
+		}
+	})
+}
+
 // CloseSlowConsumer forcibly closes the client connection when send buffer overflows.
 // Closing c.Conn causes ReadPump to exit, triggering defer c.Hub.UnregisterClient(c)
 // and properly cleaning up presence and channel resources without race conditions.
+// It is guarded by sync.Once via closeConnSafely to prevent duplicate goroutines or closing calls.
 func (c *Client) CloseSlowConsumer() {
-	if c.Conn != nil {
-		_ = c.Conn.Close()
-	}
+	c.closeConnSafely()
 }
 
