@@ -173,3 +173,13 @@ func (c *Client) WritePump() {
 		}
 	}
 }
+
+// CloseSlowConsumer forcibly closes the client connection when send buffer overflows.
+// Closing c.Conn causes ReadPump to exit, triggering defer c.Hub.UnregisterClient(c)
+// and properly cleaning up presence and channel resources without race conditions.
+func (c *Client) CloseSlowConsumer() {
+	if c.Conn != nil {
+		_ = c.Conn.Close()
+	}
+}
+

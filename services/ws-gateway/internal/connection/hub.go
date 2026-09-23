@@ -101,7 +101,11 @@ func (h *Hub) SendToUser(userID string, msg *payload.WSMessage) {
 			select {
 			case client.SendChan <- msg:
 			default:
-				// Channel full or blocked
+				// Slow consumer detected: Send buffer is full
+				log.Printf("[Hub] Slow consumer detected: SendChan full for user %s, device %s. Dropping message %s and terminating connection",
+					client.UserID, client.DeviceID, msg.ClientMsgID)
+				telemetry.MessagesProcessed.WithLabelValues("ws-gateway", "outbound", "dropped").Inc()
+				go client.CloseSlowConsumer()
 			}
 		}
 	}

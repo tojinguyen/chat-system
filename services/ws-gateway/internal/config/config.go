@@ -58,6 +58,7 @@ type WebSocketConfig struct {
 	PongWait       int64 `yaml:"pong_wait" env:"WS_PONG_WAIT" envDefault:"60"`
 	MaxMessageSize int   `yaml:"max_message_size" env:"WS_MAX_MESSAGE_SIZE" envDefault:"4096"`
 	WriteDeadline  int64 `yaml:"write_deadline" env:"WS_WRITE_DEADLINE" envDefault:"10"`
+	SendBufferSize int   `yaml:"send_buffer_size" env:"WS_SEND_BUFFER_SIZE" envDefault:"32"`
 }
 
 type PresenceConfig struct {

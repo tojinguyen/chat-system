@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"ws-gateway/internal/config"
 	"ws-gateway/internal/connection"
 	"ws-gateway/internal/payload"
 
@@ -64,11 +65,16 @@ func HandleWebSocket(hub *connection.Hub, jwtSecret string) http.HandlerFunc {
 			return
 		}
 
+		sendBufferSize := 32
+		if config.Cfg != nil && config.Cfg.Ws.SendBufferSize > 0 {
+			sendBufferSize = config.Cfg.Ws.SendBufferSize
+		}
+
 		client := &connection.Client{
 			UserID:   userID,
 			DeviceID: deviceID,
 			Hub:      hub,
-			SendChan: make(chan *payload.WSMessage, 256),
+			SendChan: make(chan *payload.WSMessage, sendBufferSize),
 			Conn:     conn,
 		}
 
