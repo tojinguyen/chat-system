@@ -1,46 +1,46 @@
 # Distributed High-Throughput Chat System
 
-Hệ thống nhắn tin phân tán thời gian thực (Real-time Messaging System) được xây dựng theo kiến trúc Microservices hướng tới khả năng chịu tải cao, độ trễ thấp và khả năng mở rộng quy mô linh hoạt.
+A distributed real-time messaging system built with a Microservices architecture, engineered for high throughput, low latency, and horizontal scalability.
 
 ---
 
-## 1. Kiến Trúc Các Dịch Vụ (Core Services)
+## 1. System Architecture & Core Services
 
-Hệ thống được thiết kế phân tách rõ ràng giữa tầng kết nối trạng thái (Stateful Edge) và tầng xử lý nghiệp vụ phi trạng thái (Stateless Processing):
+The system is decoupled into a **Stateful Edge Layer** (connection management) and a **Stateless Processing Layer** (business logic and persistence):
 
-- **`ws-gateway`**: Gateway quản lý kết nối WebSocket tập trung, chịu trách nhiệm duy trì phiên kết nối thời gian thực với các Client, tối ưu bộ nhớ đệm trên từng kết nối và phân phối tin nhắn đến các thiết bị của người dùng.
-- **`chat-engine`**: Dịch vụ xử lý nghiệp vụ tin nhắn lõi (Core Business Engine), hỗ trợ 2 chế độ điều phối chuyển phát tin nhắn nội bộ (**gRPC** point-to-point và **NATS** pub/sub), thực hiện ghi dữ liệu tin nhắn vào ScyllaDB.
-- **`api-service`**: Cung cấp RESTful API cho các nghiệp vụ xác thực (Authentication qua JWT), quản lý người dùng (Users), bạn bè (Friends) và cuộc hội thoại (Conversations), được xây dựng theo mô hình Clean Architecture.
-- **`notification-service`**: Xử lý các tác vụ thông báo đẩy (Push Notifications) bất đồng bộ cho người dùng đang ngoại tuyến (Offline).
-- **`client-simulator`**: Công cụ giả lập tải phát sinh đồng thời từ hàng trăm bot nhằm kiểm thử áp lực và đo lường độ trễ mạng thực tế của toàn bộ hệ thống.
+- **`ws-gateway`**: Centralized WebSocket connection gateway managing real-time persistent sessions with clients, enforcing per-connection buffer limits to prevent memory bloat, and dispatching outbound messages to active user devices.
+- **`chat-engine`**: Core message processing service supporting dual delivery modes (**gRPC** point-to-point and **NATS** pub/sub broker) and persisting chat history into ScyllaDB.
+- **`api-service`**: RESTful API service handling user authentication (JWT), user profile, friendships, and conversation management, built following Clean Architecture principles.
+- **`notification-service`**: Asynchronous notification worker handling offline alerts and push notifications for disconnected recipients.
+- **`client-simulator`**: High-concurrency bot load generator simulating hundreds of concurrent users to benchmark throughput, stress-test the cluster, and measure edge network latency.
 
 ---
 
-## 2. Công Nghệ Sử Dụng (Technology Stack)
+## 2. Technology Stack
 
-### Ngôn Ngữ & Framework Cốt Lõi
-- **Go (Golang 1.22+)**: Ngôn ngữ chính phát triển toàn bộ hệ thống backend microservices, tận dụng Goroutine, Channel và Concurrency Patterns để tối ưu hiệu năng và bộ nhớ.
+### Core Language & Runtime
+- **Go (Golang 1.22+)**: Primary language across all microservices, leveraging goroutines, channels, and low-latency concurrency primitives for optimal memory and CPU efficiency.
 
-### Giao Thức Truyền Thông (Communication Protocols)
-- **WebSocket (Gorilla WebSocket)**: Giao thức truyền thông hai chiều thời gian thực giữa Client và WS Gateway.
-- **gRPC & Protocol Buffers (Protobuf)**: Giao thức RPC nhị phân nội bộ tốc độ cao phục vụ điều phối tin nhắn trực tiếp giữa các service.
-- **RESTful API**: Chuẩn giao tiếp HTTP cho các thao tác xác thực và quản lý tài nguyên.
+### Communication Protocols
+- **WebSocket (Gorilla WebSocket)**: Full-duplex, low-latency bidirectional communication between clients and the WS Gateway.
+- **gRPC & Protocol Buffers (Protobuf)**: High-performance binary RPC protocol for inter-service communication and synchronous point-to-point message dispatching.
+- **RESTful API**: Standard HTTP interfaces for authentication and metadata management.
 
-### Message Broker & Điều Phối Bất Đồng Bộ
-- **NATS Core / JetStream**: Message broker phân tán hiệu năng cao, đóng vai trò làm vùng đệm và truyền tải sự kiện (Event Streaming) bất đồng bộ giữa Chat Engine và các cụm Gateway.
+### Message Broker & Event Streaming
+- **NATS Core / JetStream**: Lightweight, high-performance distributed message broker providing decoupled, asynchronous pub/sub buffering between the Chat Engine and Edge Gateways.
 
-### Cơ Sở Dữ Liệu & Bộ Nhớ Đệm (Databases & Storage)
-- **ScyllaDB / Apache Cassandra**: Cơ sở dữ liệu phân tán NoSQL dựa trên kiến trúc LSM-Tree, chuyên dụng lưu trữ lịch sử tin nhắn với tốc độ ghi cực lớn (Write-heavy Workload).
-- **PostgreSQL**: Cơ sở dữ liệu quan hệ (RDBMS) lưu trữ các thực thể nghiệp vụ cốt lõi (Tài khoản người dùng, danh sách bạn bè, thông tin hội thoại).
-- **Redis Cluster**: Bộ nhớ đệm tốc độ cao phục vụ theo dõi trạng thái trực tuyến/ngoại tuyến (Presence Management), định tuyến kết nối Gateway và Caching dữ liệu tạm.
+### Databases & Storage
+- **ScyllaDB / Apache Cassandra**: Distributed NoSQL database based on LSM-Tree architecture, designed for write-heavy workloads and high-throughput chat message history persistence.
+- **PostgreSQL**: Relational database (RDBMS) for structured domain metadata (users, friend graphs, conversation participants).
+- **Redis Cluster**: In-memory data store for real-time presence management (online/offline tracking), gateway route registry, and fast caching.
 
-### Khả Năng Quan Sát (Observability & Monitoring)
-- **Prometheus**: Thu thập và lưu trữ số liệu giám sát hệ thống theo chuỗi thời gian (Metrics Time-series).
-- **Grafana**: Hiển thị bảng điều khiển trực quan theo dõi các chỉ số vàng (Golden Signals): Độ trễ (P50, P95, P99), Lưu lượng (Throughput), Mức độ bão hòa (Saturation), Tỷ lệ lỗi (Errors) và Độ trễ mạng biên (Client Network RTT).
-- **OpenTelemetry & Jaeger**: Theo dõi vết phân tán (Distributed Tracing) toàn diện hành trình của gói tin qua từng microservice.
+### Observability & Monitoring
+- **Prometheus**: Metric collection and time-series aggregation for system health and load metrics.
+- **Grafana**: Real-time dashboards monitoring the 5 Golden Dimensions: Latency (P50, P95, P99), Throughput (msgs/sec), Worker Saturation, Error Rates, and Edge Network RTT.
+- **OpenTelemetry & Jaeger**: End-to-end distributed tracing across microservice boundaries.
 
-### Hạ Tầng & Triển Khai (Infrastructure & Deployment)
-- **Docker**: Đóng gói container hóa toàn bộ các dịch vụ và thành phần phụ trợ.
-- **Kubernetes (Kind)**: Điều phối và quản lý vòng đời container trên môi trường cụm (Cluster).
-- **NGINX Ingress Controller**: Cổng đón nhận và định tuyến lưu lượng mạng bên ngoài vào các dịch vụ trong cụm Kubernetes.
-- **Makefile**: Tự động hóa toàn bộ quy trình build, nạp image và triển khai hạ tầng.
+### Infrastructure & Deployment
+- **Docker**: Containerization for all microservices and supporting components.
+- **Kubernetes (Kind)**: Container orchestration and lifecycle management for local cluster environments.
+- **NGINX Ingress Controller**: Edge reverse proxy handling incoming WebSocket and HTTP traffic routing into the cluster.
+- **Makefile**: Automation tooling for builds, local image loading, and environment provisioning.
