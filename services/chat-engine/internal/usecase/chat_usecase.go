@@ -4,6 +4,7 @@ import (
 	"chat-system/pkg/contracts"
 	"chat-worker/internal/dispatcher"
 	"chat-worker/internal/domain"
+	"chat-worker/internal/presence"
 	"chat-worker/internal/repository"
 	"context"
 	"encoding/json"
@@ -18,18 +19,27 @@ type ChatUsecase interface {
 type chatUsecase struct {
 	messageRepo     repository.MessageRepository
 	idempotencyRepo repository.IdempotencyRepository
+	presenceReader  presence.PresenceReader
 	dispatcher      dispatcher.EventDispatcher
+	dbTimeout       time.Duration
 }
 
 func NewChatUsecase(
 	messageRepo repository.MessageRepository,
 	idempotencyRepo repository.IdempotencyRepository,
+	presenceReader presence.PresenceReader,
 	dispatcher dispatcher.EventDispatcher,
+	dbTimeout time.Duration,
 ) ChatUsecase {
+	if dbTimeout <= 0 {
+		dbTimeout = 5 * time.Second
+	}
 	return &chatUsecase{
 		messageRepo:     messageRepo,
 		idempotencyRepo: idempotencyRepo,
+		presenceReader:  presenceReader,
 		dispatcher:      dispatcher,
+		dbTimeout:       dbTimeout,
 	}
 }
 
@@ -60,6 +70,7 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 			ClientMsgID:    event.ClientMsgID,
 			ConversationID: payload.ConversationID,
 			SenderID:       event.SenderID,
+			ReceiverID:     event.SenderID,
 			Type:           contracts.BrokerEventMessageSubmitted,
 			Timestamp:      now.UnixMilli(),
 		}
@@ -77,8 +88,8 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 		UpdatedAt:      now,
 	}
 
-	// 4. Giới hạn timeout khi ghi vào Cassandra (Defensive Concurrency)
-	dbCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// 4. Giới hạn timeout khi ghi vào Cassandra (Defensive Concurrency - Configurable)
+	dbCtx, cancel := context.WithTimeout(ctx, u.dbTimeout)
 	defer cancel()
 	if err := u.messageRepo.SaveMessage(dbCtx, msg); err != nil {
 		// Rollback/Release lock trên Redis nếu ghi DB thất bại để cho phép Client retry
@@ -96,6 +107,7 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 		ClientMsgID:    event.ClientMsgID,
 		ConversationID: msg.ConversationID,
 		SenderID:       msg.SenderID,
+		ReceiverID:     msg.SenderID,
 		Type:           contracts.BrokerEventMessageSubmitted,
 		Timestamp:      now.UnixMilli(),
 	}
@@ -103,5 +115,43 @@ func (u *chatUsecase) ProcessInboundMessage(ctx context.Context, event contracts
 		// Log cảnh báo nhưng không làm fail cả luồng vì tin nhắn đã được lưu DB an toàn
 		log.Printf("[Usecase] WARN: Failed to send Sender ACK: %v", err)
 	}
+
+	// 6. OUTBOUND DELIVERY: Tra cứu Presence và chuyển tiếp tin nhắn tới người nhận
+	receiverID := payload.ReceiverID
+	if receiverID != "" && receiverID != event.SenderID {
+		routes, err := u.presenceReader.GetUserRoutes(ctx, receiverID)
+		if err != nil {
+			log.Printf("[Usecase] ERROR: Failed to query presence for receiver %s: %v", receiverID, err)
+		}
+
+		if len(routes) > 0 {
+			// Gom nhóm theo unique gatewayNode để tránh gửi trùng lặp nếu 1 node có nhiều device
+			dispatchedNodes := make(map[string]bool)
+			for _, gatewayNode := range routes {
+				if dispatchedNodes[gatewayNode] {
+					continue
+				}
+				dispatchedNodes[gatewayNode] = true
+
+				outboundMsg := contracts.OutboundBrokerEvent{
+					MessageID:      msg.ID,
+					ClientMsgID:    event.ClientMsgID,
+					ConversationID: msg.ConversationID,
+					SenderID:       msg.SenderID,
+					ReceiverID:     receiverID,
+					Content:        msg.Content,
+					Type:           contracts.BrokerEventMessageSubmitted,
+					Timestamp:      now.UnixMilli(),
+				}
+
+				if err := u.dispatcher.DispatchToGateway(ctx, gatewayNode, outboundMsg); err != nil {
+					log.Printf("[Usecase] ERROR: Failed to dispatch message to receiver gateway %s: %v", gatewayNode, err)
+				}
+			}
+		} else {
+			log.Printf("[Usecase] Receiver %s is offline. Skipping realtime push.", receiverID)
+		}
+	}
+
 	return nil
 }

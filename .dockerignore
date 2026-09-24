@@ -1,0 +1,8 @@
+.git
+.vscode
+services/api-service/node_modules
+services/api-service/dist
+tmp/
+bin/
+*.log
+repomix-output.xml

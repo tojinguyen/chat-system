@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"chat-system/pkg/contracts"
+	"chat-system/pkg/telemetry"
 	"ws-gateway/internal/config"
-	"ws-gateway/internal/domain"
+	"ws-gateway/internal/payload"
 )
 
 type PresenceService interface {
@@ -55,6 +56,7 @@ func (h *Hub) Run() {
 			}
 			h.clients[client.UserID][client.DeviceID] = client
 			h.mu.Unlock()
+			telemetry.ActiveConnections.WithLabelValues(config.Cfg.Server.NodeID).Inc()
 
 			go func(c *Client) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -75,6 +77,7 @@ func (h *Hub) Run() {
 			}
 			close(client.SendChan)
 			h.mu.Unlock()
+			telemetry.ActiveConnections.WithLabelValues(config.Cfg.Server.NodeID).Dec()
 
 			go func(c *Client) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -89,7 +92,7 @@ func (h *Hub) Run() {
 }
 
 // SendToUser pushes a message to all active devices of a user connected to this node
-func (h *Hub) SendToUser(userID string, msg *domain.WSMessage) {
+func (h *Hub) SendToUser(userID string, msg *payload.WSMessage) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -98,7 +101,11 @@ func (h *Hub) SendToUser(userID string, msg *domain.WSMessage) {
 			select {
 			case client.SendChan <- msg:
 			default:
-				// Channel full or blocked
+				// Slow consumer detected: Send buffer is full
+				log.Printf("[Hub] Slow consumer detected: SendChan full for user %s, device %s. Dropping message %s and terminating connection",
+					client.UserID, client.DeviceID, msg.ClientMsgID)
+				telemetry.MessagesProcessed.WithLabelValues("ws-gateway", "outbound", "dropped").Inc()
+				go client.CloseSlowConsumer()
 			}
 		}
 	}

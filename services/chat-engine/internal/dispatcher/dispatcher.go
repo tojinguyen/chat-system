@@ -1,42 +1,39 @@
 package dispatcher
 
 import (
-	"chat-system/pkg/contracts"
 	"context"
 	"fmt"
 	"log"
 
-	natsclient "chat-system/pkg/nats"
+	"chat-system/pkg/contracts"
+	"chat-worker/internal/config"
 
 	"github.com/nats-io/nats.go"
 )
 
+// EventDispatcher định nghĩa giao diện chung cho việc định tuyến outbound event (gRPC hoặc NATS Broker)
 type EventDispatcher interface {
+	// SendAckToSender gửi sự kiện ACK về đúng Node Gateway mà người gửi đang kết nối
 	SendAckToSender(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error
+
+	// DispatchToGateway chuyển tiếp tin nhắn tới đúng Node Gateway mà người nhận đang kết nối
+	DispatchToGateway(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error
+
+	// Close giải phóng tài nguyên kết nối (gRPC conns, etc.)
+	Close() error
 }
 
-type natsEventDispatcher struct {
-	publisher *natsclient.Publisher[contracts.OutboundBrokerEvent]
-}
-
-// NewEventDispatcher khởi tạo Dispatcher sử dụng NATS Publisher
-func NewEventDispatcher(nc *nats.Conn) EventDispatcher {
-	return &natsEventDispatcher{
-		publisher: natsclient.NewPublisher[contracts.OutboundBrokerEvent](nc, ""),
+// NewEventDispatcher khởi tạo dispatcher tương ứng với DeliveryMode đã cấu hình
+func NewEventDispatcher(cfg *config.DeliveryConfig, nc *nats.Conn) (EventDispatcher, error) {
+	switch cfg.Mode {
+	case "grpc":
+		log.Printf("[Dispatcher] Initializing gRPC Event Dispatcher (default port: %d, suffix: '%s')",
+			cfg.GRPCPort, cfg.GRPCServiceSuffix)
+		return NewGRPCEventDispatcher(cfg, nc), nil
+	case "broker":
+		log.Println("[Dispatcher] Initializing NATS Broker Event Dispatcher")
+		return NewNATSEventDispatcher(nc), nil
+	default:
+		return nil, fmt.Errorf("unsupported delivery mode '%s', must be 'grpc' or 'broker'", cfg.Mode)
 	}
-}
-
-// SendAckToSender gửi sự kiện ACK về đúng Node Gateway mà người gửi đang kết nối
-func (d *natsEventDispatcher) SendAckToSender(ctx context.Context, gatewayNode string, event contracts.OutboundBrokerEvent) error {
-	if gatewayNode == "" {
-		return fmt.Errorf("gatewayNode is empty, cannot route sender ack")
-	}
-	// Topic định tuyến riêng cho từng node gateway: "chat.gateway.{node_id}"
-	subject := contracts.GatewayNodeSubject(gatewayNode)
-	if err := d.publisher.PublishToSubject(ctx, subject, event); err != nil {
-		return fmt.Errorf("failed to publish sender ack to subject '%s': %w", subject, err)
-	}
-	log.Printf("[Dispatcher] Sender ACK published: msg_id=%s, client_msg_id=%s -> subject=%s",
-		event.MessageID, event.ClientMsgID, subject)
-	return nil
 }

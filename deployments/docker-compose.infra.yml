@@ -64,6 +64,166 @@ services:
     networks:
       - chat-network
 
+  # ----------------------------------------------------
+  # UI & OBSERVABILITY TOOLS (Web-based)
+  # ----------------------------------------------------
+
+  # Redis Web UI (Truy cập: http://localhost:5540)
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: chat-redis-insight
+    ports:
+      - "5540:5540"
+    volumes:
+      - redis_insight_data:/data
+    networks:
+      - chat-network
+    depends_on:
+      - redis
+
+  # Cassandra Web UI (Truy cập: http://localhost:8088)
+  cassandra-web:
+    image: ipushc/cassandra-web:latest
+    container_name: chat-cassandra-web
+    ports:
+      - "8088:8083"
+    environment:
+      - CASSANDRA_HOST_1=cassandra
+      - CASSANDRA_PORT=9042
+    networks:
+      - chat-network
+    depends_on:
+      cassandra:
+        condition: service_healthy
+
+  # NATS Web Dashboard (Truy cập: http://localhost:8223)
+  nats-dashboard:
+    image: mdawar/nats-dashboard:latest
+    container_name: chat-nats-dashboard
+    ports:
+      - "8223:80"
+    networks:
+      - chat-network
+    depends_on:
+      - nats
+
+  # ----------------------------------------------------
+  # OBSERVABILITY STACK (Trực tiếp trên Host, không cần Port-forward)
+  # ----------------------------------------------------
+
+  # Prometheus - Time-series Metrics Database (Truy cập: http://localhost:9090)
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: chat-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-remote-write-receiver"
+      - "--enable-feature=otlp-write-receiver"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - chat-network
+
+  # Pyroscope - Continuous Profiling (Truy cập: http://localhost:4040)
+  pyroscope:
+    image: grafana/pyroscope:latest
+    container_name: chat-pyroscope
+    ports:
+      - "4040:4040"
+    volumes:
+      - pyroscope_data:/data
+    networks:
+      - chat-network
+
+  # Grafana Loki - Log Aggregation System (Truy cập: :3100)
+  loki:
+    image: grafana/loki:3.1.0
+    container_name: chat-loki
+    user: "0:0"
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./configs/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/var/loki
+    networks:
+      - chat-network
+
+  # Promtail - Log Shipper for Docker Containers (Gắn nhãn container_name)
+  promtail:
+    image: grafana/promtail:3.1.0
+    container_name: chat-promtail
+    user: "0:0"
+    command: ["-config.file=/etc/promtail/promtail.yaml"]
+    volumes:
+      - ./configs/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - chat-network
+    depends_on:
+      - loki
+
+  # OpenTelemetry Collector (Truy cập OTLP: gRPC :4317, HTTP :4318)
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    container_name: chat-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    volumes:
+      - ./configs/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    networks:
+      - chat-network
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+
+  # Grafana Tempo - Distributed Tracing Backend (Truy cập: :3200)
+  tempo:
+    image: grafana/tempo:2.6.0
+    container_name: chat-tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    ports:
+      - "3200:3200" # HTTP API
+    volumes:
+      - ./configs/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    networks:
+      - chat-network
+
+  # Grafana - Unified Observability Dashboard (Truy cập: http://localhost:3000)
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: chat-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-pyroscope-app
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./configs/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./configs/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - chat-network
+    depends_on:
+      - prometheus
+      - pyroscope
+      - tempo
+      - loki
+
 networks:
   chat-network:
     name: chat-network
@@ -74,3 +234,9 @@ volumes:
   redis_data:
   cassandra_data:
   nats_data:
+  redis_insight_data:
+  prometheus_data:
+  pyroscope_data:
+  grafana_data:
+  tempo_data:
+  loki_data:

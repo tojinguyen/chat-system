@@ -1,6 +1,8 @@
 worker:
   id: "chat-worker-01"
-  concurrency: 10
+  workers: 32
+  buffer_size: 1024
+  drain_timeout_seconds: 10
 
 nats:
   url: "nats://localhost:4222"
@@ -15,9 +17,15 @@ database:
     - "cassandra:9042"
   keyspace: "chat_system"
   table: "messages"
+  timeout_seconds: 5
 
 redis:
   addr: "localhost:6379"
   password: ""
   db: 0
   idempotency_ttl_seconds: 86400
+
+delivery:
+  mode: "grpc" # "grpc" or "broker"
+  grpc_port: 50051
+  grpc_service_suffix: ""

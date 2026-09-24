@@ -1,14 +1,16 @@
 package delivery
 
 import (
-	"chat-system/pkg/contracts"
-	pb "chat-system/pkg/proto"
 	"context"
 	"fmt"
 	"log"
 	"net"
+
+	"chat-system/pkg/contracts"
+	pb "chat-system/pkg/proto"
+	"chat-system/pkg/telemetry"
 	"ws-gateway/internal/connection"
-	"ws-gateway/internal/domain"
+	"ws-gateway/internal/payload"
 
 	"google.golang.org/grpc"
 )
@@ -32,7 +34,9 @@ func (g *GRPCListener) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to listen on gRPC port %d: %w", g.port, err)
 	}
-	g.grpcServer = grpc.NewServer()
+	g.grpcServer = grpc.NewServer(
+		grpc.UnaryInterceptor(telemetry.UnaryServerInterceptor("ws-gateway-grpc", "gateway_delivery")),
+	)
 	pb.RegisterWSGatewayServiceServer(g.grpcServer, g)
 	go func() {
 		log.Printf("[Delivery] gRPC Server listening at :%d", g.port)
@@ -56,7 +60,7 @@ func (g *GRPCListener) PushMessageToUser(ctx context.Context, req *pb.PushMessag
 		return &pb.PushMessageResponse{Success: false, ErrorMessage: "receiver_id is required"}, nil
 	}
 
-	payload := domain.MessageDeliveryPayload{
+	deliveryPayload := payload.MessageDeliveryPayload{
 		MessageID:      req.MessageId,
 		ClientMsgID:    req.ClientMsgId,
 		ConversationID: req.ConversationId,
@@ -67,7 +71,7 @@ func (g *GRPCListener) PushMessageToUser(ctx context.Context, req *pb.PushMessag
 		Timestamp:      req.Timestamp,
 	}
 
-	wsMsg, err := payload.NewWSMessageFromDelivery()
+	wsMsg, err := deliveryPayload.NewWSMessageFromDelivery()
 	if err != nil {
 		return &pb.PushMessageResponse{Success: false, ErrorMessage: err.Error()}, nil
 	}

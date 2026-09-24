@@ -1,0 +1,26 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: mobile-network-delay
+  namespace: chat-system
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - chat-system
+    labelSelectors:
+      app: client-simulator
+  delay:
+    latency: '80ms'
+    jitter: '25ms'
+    correlation: '50'
+  direction: both
+  target:
+    selector:
+      namespaces:
+        - chat-system
+      labelSelectors:
+        app: nginx-gateway
+    mode: all
+  duration: '10m'

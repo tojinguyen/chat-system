@@ -1,4 +1,12 @@
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: chat-system
+  labels:
+    name: chat-system
+    tier: backend
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: nats
@@ -33,4 +41,42 @@ metadata:
 spec:
   type: ExternalName
   externalName: host.docker.internal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: chat-system
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+
+
 

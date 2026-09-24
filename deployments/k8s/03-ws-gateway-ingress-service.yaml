@@ -6,7 +6,7 @@ metadata:
   labels:
     app: ws-gateway
 spec:
-  type: LoadBalancer # Hoặc ClusterIP nếu bạn dùng NGINX/Traefik Ingress
+  type: ClusterIP
   selector:
     app: ws-gateway
   ports:

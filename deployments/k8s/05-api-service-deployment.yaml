@@ -42,14 +42,17 @@ spec:
             - name: REDIS_PORT
               value: "6379"
             - name: JWT_SECRET
-              value: "bXktand0LXNlY3JldA=="
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: JWT_ACCESS_TOKEN_SECRET
           resources:
             requests:
-              cpu: "200m"
-              memory: "256Mi"
+              cpu: "100m"
+              memory: "64Mi"
             limits:
-              cpu: "500m"
-              memory: "512Mi"
+              cpu: "1000m"
+              memory: "256Mi"
 ---
 apiVersion: v1
 kind: Service
@@ -57,7 +60,7 @@ metadata:
   name: api-service
   namespace: chat-system
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: api-service
   ports:

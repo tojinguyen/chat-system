@@ -1,0 +1,10 @@
+# ==============================================================================
+# Client Simulator Configuration
+# ==============================================================================
+bots: 50
+convs_per_bot: 5
+interval: "200ms"
+duration: "0s"
+api_url: "http://localhost"
+ws_url: "ws://localhost/ws"
+password: "Pass@123456"

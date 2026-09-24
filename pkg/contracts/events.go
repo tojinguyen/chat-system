@@ -28,6 +28,7 @@ type InboundBrokerEvent struct {
 // SendMessagePayload is the unmarshaled payload of a MESSAGE_SUBMITTED event
 type SendMessagePayload struct {
 	ConversationID string `json:"conversation_id"`
+	ReceiverID     string `json:"receiver_id,omitempty"`
 	Content        string `json:"content"`
 }
 

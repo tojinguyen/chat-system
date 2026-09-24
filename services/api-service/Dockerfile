@@ -1,30 +1,28 @@
-FROM node:22-alpine AS deps
-WORKDIR /usr/src/app
+# ==========================================
+# 1. BUILD STAGE
+# ==========================================
+FROM golang:1.25-alpine AS builder
 
-COPY package*.json .
-RUN npm ci
+WORKDIR /app
 
-FROM node:22-alpine AS builder
-WORKDIR /usr/src/app
+# Download dependencies
+COPY go.mod go.sum ./
+RUN go mod download
 
-COPY --from=deps /usr/src/app/node_modules ./node_modules
+# Copy source code
 COPY . .
 
-RUN npm run build
+# Build binary tối ưu kích thước
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /api-service ./cmd/main.go
 
-ENV NODE_ENV production
-RUN npm prune --production
+# ==========================================
+# 2. RUNTIME STAGE
+# ==========================================
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates tzdata
 
-FROM node:22-alpine AS runner
-WORKDIR /usr/src/app
-
-ENV NODE_ENV production
-
-USER node
-
-COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
-COPY --from=builder --chown=node:node /usr/src/app/dist ./dist
-COPY --from=builder --chown=node:node /usr/src/app/package*.json ./
+WORKDIR /root/
+COPY --from=builder /api-service .
 
 EXPOSE 3000
-CMD ["node", "dist/main.js"]
+CMD ["./api-service"]

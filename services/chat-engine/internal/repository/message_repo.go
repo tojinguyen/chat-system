@@ -8,11 +8,18 @@ import (
 	"strings"
 	"time"
 
+	"chat-system/pkg/telemetry"
 	"chat-worker/internal/config"
 	"chat-worker/internal/domain"
 
 	"github.com/gocql/gocql"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
+
+var tracer = otel.Tracer("chat-worker/repository")
 
 // MessageRepository defines the data access contract for messages
 type MessageRepository interface {
@@ -73,14 +80,28 @@ func NewCassandraMessageRepository(session *gocql.Session, table string) *Cassan
 	}
 }
 
-// SaveMessage inserts a new message into Cassandra
+// SaveMessage inserts a new message into Cassandra with OpenTelemetry Child Span
 func (r *CassandraMessageRepository) SaveMessage(ctx context.Context, msg *domain.Message) error {
+	ctx, span := tracer.Start(ctx, "Cassandra.SaveMessage",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "cassandra"),
+			attribute.String("db.operation", "insert"),
+			attribute.String("db.sql.table", r.table),
+			attribute.String("chat.conversation_id", msg.ConversationID),
+			attribute.String("chat.message_id", msg.ID),
+			attribute.String("chat.sender_id", msg.SenderID),
+		),
+	)
+	defer span.End()
+
+	startTime := time.Now()
 	query := fmt.Sprintf(`
 		INSERT INTO %s (conversation_id, id, sender_id, content, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, r.table)
 
-	return r.session.Query(query,
+	err := r.session.Query(query,
 		msg.ConversationID,
 		msg.ID,
 		msg.SenderID,
@@ -88,14 +109,40 @@ func (r *CassandraMessageRepository) SaveMessage(ctx context.Context, msg *domai
 		msg.CreatedAt,
 		msg.UpdatedAt,
 	).WithContext(ctx).Exec()
+
+	duration := time.Since(startTime).Seconds()
+	status := "success"
+	if err != nil {
+		status = "error"
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	} else {
+		span.SetStatus(codes.Ok, "OK")
+	}
+
+	telemetry.DatabaseLatency.WithLabelValues("cassandra", "insert", status).Observe(duration)
+	return err
 }
 
-// GetMessagesByConversation retrieves recent messages for a conversation
+// GetMessagesByConversation retrieves recent messages for a conversation with OpenTelemetry Child Span
 func (r *CassandraMessageRepository) GetMessagesByConversation(ctx context.Context, conversationID string, limit int) ([]*domain.Message, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
 
+	ctx, span := tracer.Start(ctx, "Cassandra.GetMessagesByConversation",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "cassandra"),
+			attribute.String("db.operation", "select"),
+			attribute.String("db.sql.table", r.table),
+			attribute.String("chat.conversation_id", conversationID),
+			attribute.Int("db.limit", limit),
+		),
+	)
+	defer span.End()
+
+	startTime := time.Now()
 	query := fmt.Sprintf(`
 		SELECT conversation_id, id, sender_id, content, created_at, updated_at
 		FROM %s
@@ -121,9 +168,18 @@ func (r *CassandraMessageRepository) GetMessagesByConversation(ctx context.Conte
 		})
 	}
 
-	if err := iter.Close(); err != nil {
+	err := iter.Close()
+	duration := time.Since(startTime).Seconds()
+	status := "success"
+	if err != nil {
+		status = "error"
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		telemetry.DatabaseLatency.WithLabelValues("cassandra", "select", status).Observe(duration)
 		return nil, fmt.Errorf("failed to query messages: %w", err)
 	}
 
+	span.SetStatus(codes.Ok, "OK")
+	telemetry.DatabaseLatency.WithLabelValues("cassandra", "select", status).Observe(duration)
 	return messages, nil
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"chat-system/pkg/telemetry"
+
 	"github.com/nats-io/nats.go"
 )
 
@@ -38,7 +40,14 @@ func (p *Publisher[T]) PublishToSubject(ctx context.Context, subject string, dat
 		return fmt.Errorf("failed to marshal message for subject %s: %w", subject, err)
 	}
 
-	if err := p.conn.Publish(subject, payload); err != nil {
+	msg := &nats.Msg{
+		Subject: subject,
+		Data:    payload,
+		Header:  make(nats.Header),
+	}
+	telemetry.InjectNATSTraceContext(ctx, msg)
+
+	if err := p.conn.PublishMsg(msg); err != nil {
 		return fmt.Errorf("failed to publish message to subject %s: %w", subject, err)
 	}
 

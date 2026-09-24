@@ -44,6 +44,8 @@ spec:
               name: ws-port
             - containerPort: 50051
               name: grpc-delivery
+            - containerPort: 9091
+              name: metrics
           envFrom:
             - configMapRef:
                 name: chat-config

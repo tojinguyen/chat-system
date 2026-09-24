@@ -1,0 +1,22 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: mobile-network-partition
+  namespace: chat-system
+spec:
+  action: partition
+  mode: all
+  selector:
+    namespaces:
+      - chat-system
+    labelSelectors:
+      app: client-simulator
+  direction: both
+  target:
+    selector:
+      namespaces:
+        - chat-system
+      labelSelectors:
+        app: nginx-gateway
+    mode: all
+  duration: '45s'

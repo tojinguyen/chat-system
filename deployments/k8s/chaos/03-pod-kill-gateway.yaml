@@ -1,0 +1,15 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: kill-ws-gateway-pod
+  namespace: chat-system
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - chat-system
+    labelSelectors:
+      app: ws-gateway
+  scheduler:
+    cron: '@every 2m'

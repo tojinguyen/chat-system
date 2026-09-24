@@ -1,0 +1,26 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: delay-nats-broker
+  namespace: chat-system
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - chat-system
+    labelSelectors:
+      app: ws-gateway
+  delay:
+    latency: '100ms'
+    jitter: '10ms'
+    correlation: '50'
+  direction: to
+  target:
+    selector:
+      namespaces:
+        - chat-system
+      labelSelectors:
+        app: nats
+    mode: all
+  duration: '5m'

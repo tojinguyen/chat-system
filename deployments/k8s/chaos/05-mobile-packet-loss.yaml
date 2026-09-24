@@ -1,0 +1,25 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: mobile-packet-loss
+  namespace: chat-system
+spec:
+  action: loss
+  mode: all
+  selector:
+    namespaces:
+      - chat-system
+    labelSelectors:
+      app: client-simulator
+  loss:
+    loss: '3'
+    correlation: '25'
+  direction: both
+  target:
+    selector:
+      namespaces:
+        - chat-system
+      labelSelectors:
+        app: nginx-gateway
+    mode: all
+  duration: '10m'

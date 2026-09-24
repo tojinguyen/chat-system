@@ -1,41 +1,6 @@
-.PHONY: help infra-up infra-down infra-logs app-up app-down app-build app-logs run-api run-gateway run-worker run-noti migrate-run migrate-revert all-up all-down
+CLUSTER ?= chat-cluster
 
-# ==========================================
-# 1. HELP & USAGE
-# ==========================================
-help:
-	@echo "================================================================"
-	@echo "                    CHAT SYSTEM COMMANDS                        "
-	@echo "================================================================"
-	@echo "1. INFRASTRUCTURE:"
-	@echo "  make infra-up        - Start Postgres, Redis, ScyllaDB, NATS"
-	@echo "  make infra-down      - Stop all infrastructure services"
-	@echo "  make infra-logs      - View infrastructure logs"
-	@echo ""
-	@echo "2. FULL APPLICATION (DOCKER COMPOSE):"
-	@echo "  make app-up          - Start application services in Docker"
-	@echo "  make app-build       - Rebuild images and start services"
-	@echo "  make app-down        - Stop application services"
-	@echo "  make app-logs        - View logs of all applications"
-	@echo ""
-	@echo "3. LOCAL DEVELOPMENT (RUN DIRECTLY ON HOST):"
-	@echo "  make run-api         - Run NestJS API Service (Watch mode)"
-	@echo "  make run-gateway     - Run WebSocket Gateway (Go)"
-	@echo "  make run-worker      - Run Chat Worker (Go)"
-	@echo "  make run-noti        - Run Notification Service (Go)"
-	@echo ""
-	@echo "4. DATABASE & MIGRATIONS (API-SERVICE):"
-	@echo "  make migrate-run     - Run TypeORM migrations"
-	@echo "  make migrate-revert  - Revert the most recent migration"
-	@echo ""
-	@echo "5. ALL-IN-ONE:"
-	@echo "  make all-up          - Start Infrastructure + Application"
-	@echo "  make all-down        - Stop everything"
-	@echo "================================================================"
-
-# ==========================================
-# 2. INFRASTRUCTURE
-# ==========================================
+# --- Infrastructure (Host) ---
 infra-up:
 	docker compose -f deployments/docker-compose.infra.yml up -d
 
@@ -45,47 +10,138 @@ infra-down:
 infra-logs:
 	docker compose -f deployments/docker-compose.infra.yml logs -f
 
-# ==========================================
-# 3. DOCKER COMPOSE APP
-# ==========================================
-app-up:
-	docker compose -f deployments/docker-compose.yml up -d
+# --- Kind Cluster ---
+kind-up:
+	kind create cluster --name $(CLUSTER) --config deployments/kind-config.yaml
 
-app-build:
-	docker compose -f deployments/docker-compose.yml up -d --build
+kind-down:
+	kind delete cluster --name $(CLUSTER)
 
-app-down:
-	docker compose -f deployments/docker-compose.yml down
+# --- Build & Load Images to Kind ---
+build:
+	docker build -t chat-system/ws-gateway:latest -f services/ws-gateway/Dockerfile .
+	docker build -t chat-system/chat-engine:latest -f services/chat-engine/Dockerfile .
+	docker build -t chat-system/api-service:latest services/api-service
+	docker build -t chat-system/client-simulator:latest -f services/client-simulator/Dockerfile .
 
-app-logs:
-	docker compose -f deployments/docker-compose.yml logs -f
+load:
+	kind load docker-image chat-system/ws-gateway:latest --name $(CLUSTER)
+	kind load docker-image chat-system/chat-engine:latest --name $(CLUSTER)
+	kind load docker-image chat-system/api-service:latest --name $(CLUSTER)
+	kind load docker-image chat-system/client-simulator:latest --name $(CLUSTER)
 
-# ==========================================
-# 4. LOCAL DEVELOPMENT
-# ==========================================
-run-api:
-	cd services/api-service && npm run start:dev
+build-load: build load
 
-run-gateway:
-	cd services/ws-gateway && go run cmd/main.go
+# --- Build & Load Từng Service Riêng Biệt (Tối ưu tốc độ dev) ---
+build-sim:
+	docker build -t chat-system/client-simulator:latest -f services/client-simulator/Dockerfile .
 
-run-worker:
-	cd services/chat-worker && go run cmd/main.go
+load-sim:
+	kind load docker-image chat-system/client-simulator:latest --name $(CLUSTER)
 
-run-noti:
-	cd services/notification-service && go run cmd/main.go
+build-load-sim: build-sim load-sim
+	kubectl rollout restart deployment/client-simulator -n chat-system
 
-# ==========================================
-# 5. DATABASE MIGRATIONS
-# ==========================================
-migrate-run:
-	cd services/api-service && npm run migration:run
+build-engine:
+	docker build -t chat-system/chat-engine:latest -f services/chat-engine/Dockerfile .
 
-migrate-revert:
-	cd services/api-service && npm run migration:revert
+load-engine:
+	kind load docker-image chat-system/chat-engine:latest --name $(CLUSTER)
 
-# ==========================================
-# 6. ALL-IN-ONE
-# ==========================================
-all-up: infra-up app-up
-all-down: app-down infra-down
+build-load-engine: build-engine load-engine
+	kubectl rollout restart deployment/chat-engine -n chat-system
+
+build-gw:
+	docker build -t chat-system/ws-gateway:latest -f services/ws-gateway/Dockerfile .
+
+load-gw:
+	kind load docker-image chat-system/ws-gateway:latest --name $(CLUSTER)
+
+build-load-gw: build-gw load-gw
+	kubectl rollout restart statefulset/ws-gateway -n chat-system
+
+build-api:
+	docker build -t chat-system/api-service:latest services/api-service
+
+load-api:
+	kind load docker-image chat-system/api-service:latest --name $(CLUSTER)
+
+build-load-api: build-api load-api
+	kubectl rollout restart deployment/api-service -n chat-system
+
+# --- Kubernetes Deploy & Ops ---
+k8s-deploy:
+	kubectl apply -f deployments/k8s/
+
+k8s-delete:
+	kubectl delete -f deployments/k8s/
+
+k8s-restart:
+	kubectl rollout restart statefulset/ws-gateway -n chat-system
+	kubectl rollout restart deployment/chat-engine -n chat-system
+	kubectl rollout restart deployment/api-service -n chat-system
+	kubectl rollout restart deployment/nginx-gateway -n chat-system
+	kubectl rollout restart deployment/client-simulator -n chat-system
+
+k8s-config:
+	kubectl apply -f deployments/k8s/01-configmap-secrets.yaml
+	kubectl rollout restart deployment/chat-engine statefulset/ws-gateway deployment/nginx-gateway -n chat-system
+
+reload: k8s-config
+
+k8s-status:
+	kubectl get pods,svc,statefulset -n chat-system -o wide
+
+# --- K8s Logs ---
+logs-gw:
+	kubectl logs -l app=ws-gateway -n chat-system -f
+
+logs-engine:
+	kubectl logs -l app=chat-engine -n chat-system -f
+
+logs-api:
+	kubectl logs -l app=api-service -n chat-system -f
+
+logs-sim:
+	kubectl logs -l app=client-simulator -n chat-system -f
+
+# --- Client Simulator (Kubernetes) ---
+sim-up:
+	kubectl apply -f deployments/k8s/09-client-simulator.yaml
+
+sim-down:
+	kubectl delete -f deployments/k8s/09-client-simulator.yaml --ignore-not-found
+
+sim-restart:
+	kubectl rollout restart deployment/client-simulator -n chat-system
+
+# Alias giữ tương thích
+sim-k8s: sim-up
+sim-k8s-down: sim-down
+
+# --- Chaos Engineering ---
+chaos-delay-grpc:
+	kubectl apply -f deployments/k8s/chaos/01-network-delay-grpc.yaml
+
+chaos-delay-nats:
+	kubectl apply -f deployments/k8s/chaos/02-network-delay-nats.yaml
+
+chaos-kill-gw:
+	kubectl apply -f deployments/k8s/chaos/03-pod-kill-gateway.yaml
+
+chaos-mobile-delay:
+	kubectl apply -f deployments/k8s/chaos/04-mobile-network-delay.yaml
+
+chaos-mobile-loss:
+	kubectl apply -f deployments/k8s/chaos/05-mobile-packet-loss.yaml
+
+chaos-mobile-partition:
+	kubectl apply -f deployments/k8s/chaos/06-mobile-network-partition.yaml
+
+chaos-clean:
+	kubectl delete -f deployments/k8s/chaos/ --ignore-not-found
+
+k6-stress:
+	kubectl create configmap k6-test-script --from-file=test-ws-load.js=deployments/k6/test-ws-load.js -n chat-system --dry-run=client -o yaml | kubectl apply -f -
+	kubectl apply -f deployments/k6/k6-testrun.yaml
+

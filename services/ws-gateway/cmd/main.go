@@ -12,6 +12,7 @@ import (
 
 	"chat-system/pkg/contracts"
 	natsclient "chat-system/pkg/nats"
+	"chat-system/pkg/telemetry"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/connection"
 	"ws-gateway/internal/delivery"
@@ -28,6 +29,22 @@ func main() {
 	log.Printf("Starting WebSocket Gateway node: %s (mode: %s, ws_port: :%d)",
 		cfg.Server.NodeID, cfg.Server.DeliveryMode, cfg.Server.Port)
 
+	// Initialize Unified Telemetry (Tracing + Profiling + Metrics Server)
+	shutdownTelemetry, err := telemetry.Setup(context.Background(), telemetry.SetupConfig{
+		ServiceName:      "ws-gateway",
+		ServiceVersion:   "1.0.0",
+		NodeID:           cfg.Server.NodeID,
+		CollectorTarget:  cfg.Telemetry.CollectorTarget,
+		MetricsPort:      cfg.Telemetry.MetricsPort,
+		ProfilerServer:   cfg.Profiler.ServerAddress,
+		DisableTracing:   cfg.Telemetry.Disabled,
+		DisableProfiling: cfg.Profiler.Disabled,
+	})
+	if err != nil {
+		log.Printf("[Warning] Telemetry setup: %v", err)
+	}
+	defer shutdownTelemetry(context.Background())
+
 	// Initialize NATS Connection for Inbound events
 	nc, err := natsclient.Connect(cfg.NATS.URL, "ws-gateway-"+cfg.Server.NodeID)
 	if err != nil {
@@ -35,8 +52,13 @@ func main() {
 	}
 	defer nc.Close()
 
-	// Initialize Generic NATS Inbound Producer
-	inboundProducer := natsclient.NewPublisher[contracts.InboundBrokerEvent](nc, cfg.NATS.InboundSubject)
+	// Initialize Generic NATS Inbound Producer with Telemetry Decorator
+	rawProducer := natsclient.NewPublisher[contracts.InboundBrokerEvent](nc, cfg.NATS.InboundSubject)
+	inboundProducer := natsclient.NewInstrumentedPublisher(rawProducer, natsclient.PublisherConfig{
+		ServiceName: "ws-gateway",
+		Stage:       "inbound",
+		EventType:   "inbound",
+	})
 
 	// Initialize Presence Service
 	presenceService := presence.NewPresenceService(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
@@ -48,19 +70,19 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Initialize Outbound Delivery Listener based on configured Mode
-	var listener delivery.DeliveryListener
-	switch cfg.Server.DeliveryMode {
-	case "grpc":
-		listener = delivery.NewGRPCListener(cfg.GRPC.Port, hub)
-	case "broker":
-		listener = delivery.NewNATSListener(nc, cfg.Server.NodeID, hub)
-	default:
-		log.Fatalf("Unsupported delivery mode '%s'. Must be 'grpc' or 'broker'", cfg.Server.DeliveryMode)
+	// 1. Luôn lắng nghe NATS Subject riêng của Node Gateway (chat.gateway.{node_id}) để nhận Sender ACK
+	natsListener := delivery.NewNATSListener(nc, cfg.Server.NodeID, hub)
+	if err := natsListener.Start(ctx); err != nil {
+		log.Fatalf("Failed to start NATS delivery listener: %v", err)
 	}
 
-	if err := listener.Start(ctx); err != nil {
-		log.Fatalf("Failed to start %s delivery listener: %v", cfg.Server.DeliveryMode, err)
+	// 2. Nếu chạy mode gRPC, khởi động thêm gRPC Server để nhận Outbound Delivery từ chat-engine
+	var grpcListener delivery.DeliveryListener
+	if cfg.Server.DeliveryMode == "grpc" {
+		grpcListener = delivery.NewGRPCListener(cfg.GRPC.Port, hub)
+		if err := grpcListener.Start(ctx); err != nil {
+			log.Fatalf("Failed to start gRPC delivery listener: %v", err)
+		}
 	}
 
 	// HTTP / WebSocket route
@@ -90,8 +112,9 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := listener.Stop(shutdownCtx); err != nil {
-		log.Printf("Error stopping delivery listener: %v", err)
+	_ = natsListener.Stop(shutdownCtx)
+	if grpcListener != nil {
+		_ = grpcListener.Stop(shutdownCtx)
 	}
 
 	if err := server.Shutdown(shutdownCtx); err != nil {

@@ -7,8 +7,9 @@ import (
 
 	"chat-system/pkg/contracts"
 	natsclient "chat-system/pkg/nats"
+	"chat-system/pkg/telemetry"
 	"ws-gateway/internal/connection"
-	"ws-gateway/internal/domain"
+	"ws-gateway/internal/payload"
 
 	"github.com/nats-io/nats.go"
 )
@@ -29,8 +30,11 @@ func NewNATSListener(nc *nats.Conn, nodeID string, hub *connection.Hub) *NATSLis
 }
 
 func (n *NATSListener) Start(ctx context.Context) error {
-	err := n.subscriber.Start(ctx, func(ctx context.Context, event contracts.OutboundBrokerEvent) error {
-		payload := domain.MessageDeliveryPayload{
+	handler := telemetry.InstrumentHandler(telemetry.HandlerConfig{
+		Mode:  "nats",
+		Stage: "gateway_delivery",
+	}, func(ctx context.Context, event contracts.OutboundBrokerEvent) error {
+		deliveryPayload := payload.MessageDeliveryPayload{
 			MessageID:      event.MessageID,
 			ClientMsgID:    event.ClientMsgID,
 			ConversationID: event.ConversationID,
@@ -41,16 +45,20 @@ func (n *NATSListener) Start(ctx context.Context) error {
 			Timestamp:      event.Timestamp,
 		}
 
-		wsMsg, err := payload.NewWSMessageFromDelivery()
+		wsMsg, err := deliveryPayload.NewWSMessageFromDelivery()
 		if err != nil {
 			return err
 		}
 
-		n.hub.SendToUser(event.ReceiverID, wsMsg)
+		targetUser := event.ReceiverID
+		if targetUser == "" {
+			targetUser = event.SenderID
+		}
+		n.hub.SendToUser(targetUser, wsMsg)
 		return nil
 	})
 
-	if err != nil {
+	if err := n.subscriber.Start(ctx, handler); err != nil {
 		return fmt.Errorf("failed to start NATS listener: %w", err)
 	}
 
