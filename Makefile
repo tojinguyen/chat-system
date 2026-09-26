@@ -107,10 +107,10 @@ logs-sim:
 
 # --- Client Simulator (Kubernetes) ---
 sim-up:
-	kubectl apply -f deployments/k8s/09-client-simulator.yaml
+	kubectl scale deployment client-simulator --replicas=1 -n chat-system
 
 sim-down:
-	kubectl delete -f deployments/k8s/09-client-simulator.yaml --ignore-not-found
+	kubectl scale deployment client-simulator --replicas=0 -n chat-system
 
 sim-restart:
 	kubectl rollout restart deployment/client-simulator -n chat-system
@@ -145,3 +145,16 @@ k6-stress:
 	kubectl create configmap k6-test-script --from-file=test-ws-load.js=deployments/k6/test-ws-load.js -n chat-system --dry-run=client -o yaml | kubectl apply -f -
 	kubectl apply -f deployments/k6/k6-testrun.yaml
 
+
+# -------------------------------------------------
+# Kind cluster helpers
+# -------------------------------------------------
+kind-up:
+	kind create cluster --name chat-system
+	kind load docker-image chat-system/ws-gateway:latest   --name chat-system
+	kind load docker-image chat-system/chat-engine:latest  --name chat-system
+	kind load docker-image chat-system/api-service:latest  --name chat-system
+	kubectl apply -f deployments/k8s/
+
+kind-down:
+	kind delete cluster --name chat-system

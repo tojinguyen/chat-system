@@ -81,8 +81,6 @@ spec:
       labels:
         app: nginx-gateway
     spec:
-      nodeSelector:
-        ingress-ready: "true"
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
